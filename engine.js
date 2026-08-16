@@ -1,0 +1,746 @@
+'use strict';
+
+(function(global){
+  const PART_COLUMNS = ['Part','TAG','Description','Part Number','Category','Unit'];
+
+  function normalizeText(value){
+    return String(value ?? '').trim().toLowerCase().replaceAll('×','x').replace(/[^a-z0-9]+/g,'');
+  }
+  function asNumber(value, def=0){
+    if(value === null || value === undefined || value === '') return def;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : def;
+  }
+  function asInt(value, def=0){
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.trunc(n) : def;
+  }
+  function niceNumber(value){
+    if(value === null || value === undefined || value === '') return '';
+    const n = Number(value);
+    if(!Number.isFinite(n)) return value;
+    return Number.isInteger(n) ? n : Math.round(n * 1000) / 1000;
+  }
+  function firstNonEmpty(...values){
+    for(const value of values){ if(value !== null && value !== undefined && value !== '') return value; }
+    return '';
+  }
+  function ceilHalf(value){ return Math.floor((asInt(value,0) + 1) / 2); }
+  function ceilUp(value){ return Math.ceil(asNumber(value,0)); }
+
+  const FASTENER_STANDARDS = [
+    ['din931iso4014','Standard Hex Bolt'],
+    ['din933iso4017','Standard Hex Bolt (Fully Threaded)'],
+    ['din7991iso10642','Countersunk head screws with a hexagonal socket'],
+    ['din7985iso7045','Cross recessed raised cheese head screws'],
+    ['din913iso4026','Hexagon socket set screws with flat point'],
+    ['din912iso4762','Hexagon Socket head cap Screws'],
+    ['diniso7049','Pan head self tapping screws'],
+    ['din186','T head Bolt'],
+    ['din9761','Stud Bolt'],
+    ['iso10642','Hexagon Socket countersunk head Screws'],
+    ['iso7045','Pan head screws, type H or Z cross recess (Grade A)'],
+    ['iso7380','Hexagon Socket Button Head'],
+    ['iso21269','Hexagon Socket head cap screw with fine pitch'],
+    ['din580','Lifting Eye Bolt'],
+    ['iso2009','Slotted Countersunk flat head screws'],
+    ['iso2010','Slotted Raised Countersunk head screws'],
+    ['din316','Wing Screws, Rounded Wings'],
+    ['din7504iso15480','Drilling screw'],
+    ['din6921iso4162','Hexagon Flange Bolt'],
+    ['iso14579','Hexalobular Cylindrical Head bolt'],
+    ['iso4027','Hexagon socket set screws with cone point'],
+    ['iso4029','Hexagon socket set screws with cup point'],
+    ['din93x','Special Thread Length'],
+    ['din603','Mushroom head square neck bolts'],
+    ['din985iso10511','Thin Lock Nut'],
+    ['din982iso7040','Lock Nut'],
+    ['din934iso4032','Hex Nut'],
+    ['din6923iso4161','Hex Nut with flange'],
+    ['din936iso4035','Thin Nut'],
+    ['din7967','Self-locking Counter Nut'],
+    ['din986','Prevailing torque hex domed nut'],
+    ['din125iso7089','Plain washers, Normal'],
+    ['din9021iso7093','Plain washers, Large'],
+    ['din127b','Spring Washers'],
+    ['din7349iso7838','Thick Flat Washer'],
+    ['din440v','Flat Washers with Square Holes'],
+    ['din522iso4759','Heavy Duty Flat Washer'],
+    ['din6796iso10683','Disc Spring Washers'],
+    ['din522','Heavy Duty Flat Washer'],
+    ['din127','Spring Washers'],
+    ['din7349','Thick Flat Washer'],
+    ['din6796','Disc Spring Washers'],
+  ];
+  function fastenerPartNameFromDescription(description){
+    const norm = normalizeText(description);
+    for(const [standard,name] of FASTENER_STANDARDS){ if(norm.includes(standard)) return name; }
+    return null;
+  }
+  function loadInternalPartMaster(){
+    return (global.INTERNAL_PART_MASTER_RAW || []).map(raw => {
+      const record = {...raw};
+      if(String(record.Category || '').toLowerCase().startsWith('fasteners')){
+        const readable = fastenerPartNameFromDescription(record.Description);
+        if(readable) record.Part = readable;
+      }
+      for(const column of PART_COLUMNS){ if(!(column in record)) record[column] = ''; }
+      return record;
+    }).filter(record => record.Part || record.TAG || record.Description);
+  }
+
+  const DEFAULT_INPUTS = Object.freeze({
+    pv_power:'700',
+    foundation_type:'Ramming',
+    cad_blocks_available:'Yes',
+    max_span_length:'8500',
+    pv_module_width:'1134',
+    pv_module_length:'2384',
+    pv_module_hole_distance:'1093',
+    hat_rail_hole_distance:'60',
+    pv_gap_locked:true,
+    pv_module_gap:'19',
+    z_rail_offset:'7.5',
+    motor_gap:'400',
+    target_end_gap:'50',
+    overlap_ab:'270',
+    overlap_bc:'270',
+    main_beam_a_length:'9800',
+    main_beam_connection_length:'500',
+    main_beam_b_length:'11500',
+    main_beam_c_short_length:'8700',
+    main_beam_c_long_length:'11800',
+    mid_plane_to_beam_a:'80',
+    bearing_distance_mode:'Symmetrical',
+    symmetrical_distance:'8320',
+    semi_pair_count:3,
+    asym_post_count:3,
+    semi_pair_gaps:{'1':'8320','2':'7350','3':'6500','4':'','5':''},
+    asym_north_gaps:{'1':'8320','2':'7350','3':'6500','4':'','5':''},
+    asym_south_gaps:{'1':'8320','2':'7350','3':'6500','4':'','5':''},
+  });
+
+  function defaultTrackerQuantities(){
+    return Object.fromEntries(Array.from({length:43},(_,i)=>[String(i+14),0]));
+  }
+  function defaultManualParts(){
+    return {
+      manual_1:{selected:false,include:false,Item:'Safeguard',qty:'0',TAG:'',Description:'Safeguard','Part Number':'',Category:'Electrical / Standard',Unit:'pcs',_default:true},
+      manual_2:{selected:false,include:false,Item:'Datalogger',qty:'0',TAG:'',Description:'Datalogger','Part Number':'',Category:'Electrical / Standard',Unit:'pcs',_default:true},
+    };
+  }
+  function defaultBearingRule(inputs=DEFAULT_INPUTS){
+    const semiCount = asInt(inputs.semi_pair_count,3);
+    const asymCount = asInt(inputs.asym_post_count,3);
+    return {
+      locked:false,
+      mode:String(inputs.bearing_distance_mode || 'Symmetrical'),
+      symmetrical_distance:asNumber(inputs.symmetrical_distance,8320),
+      semi_pair_count:semiCount,
+      asym_post_count:asymCount,
+      semi_pair_gaps:Array.from({length:semiCount},(_,i)=>asNumber(inputs.semi_pair_gaps?.[String(i+1)],0)),
+      asym_north_gaps:Array.from({length:asymCount},(_,i)=>asNumber(inputs.asym_north_gaps?.[String(i+1)],0)),
+      asym_south_gaps:Array.from({length:asymCount},(_,i)=>asNumber(inputs.asym_south_gaps?.[String(i+1)],0)),
+    };
+  }
+  function normalizeBearingRule(rule){
+    const r = rule || {};
+    return {
+      locked:!!r.locked,
+      mode:String(r.mode || 'Symmetrical'),
+      symmetrical_distance:asNumber(r.symmetrical_distance,0),
+      semi_pair_count:asInt(r.semi_pair_count,(r.semi_pair_gaps||[]).length),
+      asym_post_count:asInt(r.asym_post_count,(r.asym_north_gaps||[]).length),
+      semi_pair_gaps:Array.from(r.semi_pair_gaps || [],v=>asNumber(v,0)),
+      asym_north_gaps:Array.from(r.asym_north_gaps || [],v=>asNumber(v,0)),
+      asym_south_gaps:Array.from(r.asym_south_gaps || [],v=>asNumber(v,0)),
+    };
+  }
+  function getDesignInputs(project){
+    const i = project.inputs || {};
+    return {
+      pv_power:asNumber(i.pv_power,700),
+      pv_module_width:asNumber(i.pv_module_width,1134),
+      pv_module_length:asNumber(i.pv_module_length,2384),
+      pv_module_hole_distance:asNumber(i.pv_module_hole_distance,1093),
+      hat_rail_hole_distance:asNumber(i.hat_rail_hole_distance,60),
+      pv_module_gap:asNumber(i.pv_module_gap,19),
+      z_rail_offset:asNumber(i.z_rail_offset,7.5),
+      motor_gap:asNumber(i.motor_gap,400),
+      target_end_gap:asNumber(i.target_end_gap,50),
+      overlap_ab:asNumber(i.overlap_ab,270),
+      overlap_bc:asNumber(i.overlap_bc,270),
+      main_beam_a_length:asNumber(i.main_beam_a_length,9800),
+      main_beam_connection_length:asNumber(i.main_beam_connection_length,500),
+      main_beam_b_length:asNumber(i.main_beam_b_length,11500),
+      main_beam_c_short_length:asNumber(i.main_beam_c_short_length,8700),
+      main_beam_c_long_length:asNumber(i.main_beam_c_long_length,11800),
+      mid_plane_to_beam_a:asNumber(i.mid_plane_to_beam_a,80),
+    };
+  }
+  function calculateAutoPvModuleGap(project){
+    const i = project.inputs || {};
+    return asNumber(i.pv_module_hole_distance,1093) + asNumber(i.hat_rail_hole_distance,60) - asNumber(i.pv_module_width,1134);
+  }
+  function cadBlocksAreAvailable(project){ return String(project.inputs?.cad_blocks_available ?? 'Yes').trim().toLowerCase() === 'yes'; }
+  function getBomModeText(project){ return cadBlocksAreAvailable(project) ? 'CAD Block' : 'Estimation'; }
+  function getSpanLimits(project){
+    const maxSpan = asNumber(project.inputs?.max_span_length,8500);
+    return Object.fromEntries([2,4,6,8].map(span=>[span,span*maxSpan + 2*maxSpan*0.35]));
+  }
+  function estimateSpanCountForLength(project,trackerLength){
+    const limits = getSpanLimits(project);
+    for(const span of [2,4,6,8]){ if(trackerLength <= limits[span]) return span; }
+    return 8;
+  }
+
+  function calculateTrackerGeometry(project,pvCount){
+    const d = getDesignInputs(project);
+    const northModules = Math.ceil(pvCount/2);
+    const southModules = Math.floor(pvCount/2);
+    const isOddTracker = pvCount % 2 === 1;
+    const northGaps = Math.max(northModules-1,0);
+    const southGaps = Math.max(southModules-1,0);
+    const trackerType = pvCount > 40 ? 'Long' : 'Short';
+    const firstPieceLength = trackerType === 'Long' ? d.main_beam_a_length : d.main_beam_connection_length;
+    const firstPieceName = trackerType === 'Long' ? 'Main Beam A' : 'Slew Drive Connection';
+    const zoneAEnd = d.mid_plane_to_beam_a + firstPieceLength;
+    const zoneBEnd = zoneAEnd - d.overlap_ab + d.main_beam_b_length;
+    const baseUntilC = zoneBEnd - d.overlap_bc;
+
+    function sideGeometry(modulesOnSide){
+      const gapsOnSide = Math.max(modulesOnSide-1,0);
+      const requiredSide = d.motor_gap/2 + modulesOnSide*d.pv_module_width + gapsOnSide*d.pv_module_gap + d.target_end_gap;
+      // V3.11: C is not required when the required envelope ends within Beam B.
+      const mainCRequired = requiredSide <= zoneBEnd ? 0 : requiredSide - baseUntilC;
+      let stock, stockLength;
+      if(mainCRequired <= 0){ stock='Not required'; stockLength=0; }
+      else if(mainCRequired <= d.main_beam_c_short_length){ stock='Cut from 8700'; stockLength=d.main_beam_c_short_length; }
+      else { stock='Cut from 11800'; stockLength=d.main_beam_c_long_length; }
+      const mainCStart = baseUntilC;
+      const mainCActualEnd = mainCRequired > 0 ? baseUntilC + mainCRequired : baseUntilC;
+      const sideEnd = Math.max(zoneBEnd,mainCActualEnd);
+      const lastPvEndWithoutEndGap = d.motor_gap/2 + modulesOnSide*d.pv_module_width + gapsOnSide*d.pv_module_gap;
+      const calculatedEndGap = sideEnd - lastPvEndWithoutEndGap;
+      return {modules:modulesOnSide,gaps:gapsOnSide,required:requiredSide,main_c_required:mainCRequired,stock,stock_length:stockLength,main_c_start:mainCStart,main_c_actual_end:mainCActualEnd,end:sideEnd,end_gap:calculatedEndGap};
+    }
+    const north = sideGeometry(northModules);
+    const south = sideGeometry(southModules);
+    const trackerLength = north.end + south.end;
+    return {
+      'Tracker Type':trackerType,
+      'Tracker Symmetry':isOddTracker?'Asymmetrical':'Symmetrical',
+      'First Piece Name':firstPieceName,
+      'First Piece Length':firstPieceLength,
+      'Modules / Side':isOddTracker?`N:${northModules} / S:${southModules}`:northModules,
+      'Modules / North Side':northModules,
+      'Modules / South Side':southModules,
+      'PV Gaps / Side':isOddTracker?`N:${northGaps} / S:${southGaps}`:northGaps,
+      'PV Gaps / North Side':northGaps,
+      'PV Gaps / South Side':southGaps,
+      'Required Right Side':north.required,
+      'Required North Side':north.required,
+      'Required South Side':south.required,
+      'Zone A End (120)':zoneAEnd,
+      'Zone B End (110)':zoneBEnd,
+      'Base Until C':baseUntilC,
+      'Main Beam C Start from Midplane':baseUntilC,
+      'Main Beam C Required Length':isOddTracker?`N:${niceNumber(north.main_c_required)} / S:${niceNumber(south.main_c_required)}`:north.main_c_required,
+      'Main Beam C Required Length North':north.main_c_required,
+      'Main Beam C Required Length South':south.main_c_required,
+      'Main Beam C Stock Suggestion':isOddTracker?`N:${north.stock} / S:${south.stock}`:north.stock,
+      'Main Beam C Stock Suggestion North':north.stock,
+      'Main Beam C Stock Suggestion South':south.stock,
+      'Main Beam C Stock Length North':north.stock_length,
+      'Main Beam C Stock Length South':south.stock_length,
+      'Main Beam C Actual End North from Midplane':north.main_c_actual_end,
+      'Main Beam C Actual End South from Midplane':south.main_c_actual_end,
+      // These remain tracker-side physical ends, matching V3.11 bearing classification.
+      'Main Beam C End from Midplane':Math.max(north.end,south.end),
+      'Main Beam C End North from Midplane':north.end,
+      'Main Beam C End South from Midplane':south.end,
+      'Tracker Length (mm)':trackerLength,
+      'Calculated End Gap':isOddTracker?`N:${niceNumber(north.end_gap)} / S:${niceNumber(south.end_gap)}`:north.end_gap,
+      'Calculated End Gap North':north.end_gap,
+      'Calculated End Gap South':south.end_gap,
+    };
+  }
+
+  function getBearingRuleForPv(project,pvCount){
+    const custom = project.bearing_rules?.[String(pvCount)] ?? project.bearing_rules?.[pvCount];
+    return custom ? normalizeBearingRule(custom) : defaultBearingRule(project.inputs || DEFAULT_INPUTS);
+  }
+  function getPositionsFromRule(rule,defaultBearingPostsPerTracker,geometry){
+    rule = normalizeBearingRule(rule);
+    const rows=[];
+    if(rule.mode === 'Symmetrical'){
+      const gap=asNumber(rule.symmetrical_distance,0);
+      let pairsPerSide;
+      if(geometry && gap>0){
+        const trackerHalfLength=asNumber(geometry['Tracker Length (mm)'],0)/2;
+        pairsPerSide=trackerHalfLength>0?Math.trunc(trackerHalfLength/gap):Math.max(Math.trunc(defaultBearingPostsPerTracker/2),1);
+      } else pairsPerSide=Math.max(Math.trunc(defaultBearingPostsPerTracker/2),1);
+      pairsPerSide=Math.max(1,Math.min(pairsPerSide,5));
+      for(let pair=1;pair<=pairsPerSide;pair++){
+        const distance=pair*gap;
+        rows.push({'Pair No.':pair,'Side':'North','Gap from Previous (mm)':gap,'Distance from Main Post (mm)':distance});
+        rows.push({'Pair No.':pair,'Side':'South','Gap from Previous (mm)':gap,'Distance from Main Post (mm)':-distance});
+      }
+    } else if(rule.mode === 'Semi-symmetrical'){
+      let cumulative=0;
+      (rule.semi_pair_gaps||[]).forEach((rawGap,index)=>{
+        const gap=asNumber(rawGap,0);
+        cumulative+=gap;
+        const pair=index+1;
+        rows.push({'Pair No.':pair,'Side':'North','Gap from Previous (mm)':gap,'Distance from Main Post (mm)':cumulative});
+        rows.push({'Pair No.':pair,'Side':'South','Gap from Previous (mm)':gap,'Distance from Main Post (mm)':-cumulative});
+      });
+    } else {
+      const northGaps=rule.asym_north_gaps||[], southGaps=rule.asym_south_gaps||[];
+      const count=Math.max(northGaps.length,southGaps.length);
+      let northCumulative=0,southCumulative=0;
+      for(let index=0;index<count;index++){
+        const northGap=asNumber(northGaps[index],0), southGap=asNumber(southGaps[index],0);
+        northCumulative+=northGap; southCumulative+=southGap;
+        const pair=index+1;
+        // V3.11 emits both sides even when a gap is 0.
+        rows.push({'Pair No.':pair,'Side':'North','Gap from Previous (mm)':northGap,'Distance from Main Post (mm)':northCumulative});
+        rows.push({'Pair No.':pair,'Side':'South','Gap from Previous (mm)':southGap,'Distance from Main Post (mm)':-southCumulative});
+      }
+    }
+    return rows;
+  }
+  function classifyBearing(geometry,positionMm){
+    const distance=Math.abs(positionMm);
+    const zoneAEnd=asNumber(geometry['Zone A End (120)'],0);
+    const zoneBEnd=asNumber(geometry['Zone B End (110)'],0);
+    const zoneCEnd=positionMm<0?asNumber(geometry['Main Beam C End South from Midplane'] ?? geometry['Main Beam C End from Midplane'],0):asNumber(geometry['Main Beam C End North from Midplane'] ?? geometry['Main Beam C End from Midplane'],0);
+    if(distance<=zoneAEnd) return ['Main Beam A / Connection','Bearing 120','OK'];
+    if(distance<=zoneBEnd) return ['Main Beam B 110','Bearing 110','OK'];
+    if(distance<=zoneCEnd) return ['Main Beam C 100','Bearing 100','OK'];
+    return ['Outside Tracker','Check input','Warning'];
+  }
+  function classifyBeamZoneForPosition(geometry,positionMm){
+    const distance=Math.abs(positionMm);
+    const zoneAEnd=asNumber(geometry['Zone A End (120)'],0);
+    const zoneBEnd=asNumber(geometry['Zone B End (110)'],0);
+    const zoneCEnd=positionMm<0?asNumber(geometry['Main Beam C End South from Midplane'] ?? geometry['Main Beam C End from Midplane'],0):asNumber(geometry['Main Beam C End North from Midplane'] ?? geometry['Main Beam C End from Midplane'],0);
+    if(distance<=zoneAEnd) return ['A / 120',0];
+    if(distance<=zoneBEnd) return ['B / 110',1];
+    if(distance<=zoneCEnd) return ['C / 100',2];
+    return ['Outside',0];
+  }
+  function calculateEstimatedBearingPositions(project,geometry){
+    const trackerLength=asNumber(geometry['Tracker Length (mm)'],0);
+    const maxSpan=asNumber(project.inputs?.max_span_length,8500);
+    const spanCount=estimateSpanCountForLength(project,trackerLength);
+    const pairsPerSide=Math.max(Math.trunc(spanCount/2),1);
+    const spanType=`${spanCount}-Span`;
+    const rows=[];
+    for(let pair=1;pair<=pairsPerSide;pair++){
+      const distance=pair*maxSpan;
+      rows.push({'Pair No.':pair,'Side':'North','Gap from Previous (mm)':maxSpan,'Distance from Main Post (mm)':distance,'Span Type':spanType});
+      rows.push({'Pair No.':pair,'Side':'South','Gap from Previous (mm)':maxSpan,'Distance from Main Post (mm)':-distance,'Span Type':spanType});
+    }
+    return {rows,spanCount,spanType};
+  }
+  function calculateBearingLayoutForTracker(project,scheduleRow,geometry){
+    const pvCount=asInt(scheduleRow['PV Modules per Tracker'],0);
+    const defaultPosts=asInt(firstNonEmpty(scheduleRow['Bearing Posts / Tracker'],scheduleRow['Bearing Posts'],2),2);
+    let positions,bearingRuleSource,spanType,spanCount;
+    if(cadBlocksAreAvailable(project)){
+      const rule=getBearingRuleForPv(project,pvCount);
+      positions=getPositionsFromRule(rule,defaultPosts,geometry);
+      bearingRuleSource=(project.bearing_rules && Object.prototype.hasOwnProperty.call(project.bearing_rules,String(pvCount)))?'Custom':'Default';
+      spanType='CAD Block'; spanCount=positions.length;
+    } else {
+      const estimated=calculateEstimatedBearingPositions(project,geometry);
+      positions=estimated.rows; spanCount=estimated.spanCount; spanType=estimated.spanType; bearingRuleSource='Estimation';
+    }
+    let bearing120=0,bearing110=0,bearing100=0,outside=0;
+    const outputRows=positions.map(item=>{
+      const [zone,bearingType,status]=classifyBearing(geometry,item['Distance from Main Post (mm)']);
+      if(bearingType==='Bearing 120') bearing120++; else if(bearingType==='Bearing 110') bearing110++; else if(bearingType==='Bearing 100') bearing100++; else outside++;
+      return {...item,'Absolute Distance (mm)':Math.abs(item['Distance from Main Post (mm)']),'Beam Zone':zone,'Bearing Type':bearingType,'Status':status,'Bearing Rule Source':bearingRuleSource,'Span Type':spanType};
+    });
+    return {'Bearing Posts / Tracker':outputRows.length,'Bearing 120 / Tracker':bearing120,'Bearing 110 / Tracker':bearing110,'Bearing 100 / Tracker':bearing100,'Bearing Outside / Tracker':outside,'Bearing Status':outside===0?'OK':'Warning','Bearing Rule Source':bearingRuleSource,'Span Type':spanType,'Estimated Span Count':spanCount,'Rows':outputRows};
+  }
+
+  function generateModuleRailPositionsForSide(project,pvCount,geometry,side){
+    const d=getDesignInputs(project);
+    const sideName=String(side).toLowerCase().startsWith('n')?'North':'South';
+    const sign=sideName==='North'?1:-1;
+    const modulesPerSide=asInt(geometry[`Modules / ${sideName} Side`],sideName==='North'?Math.ceil(pvCount/2):Math.floor(pvCount/2));
+    const railCount=modulesPerSide+1;
+    let position=d.motor_gap/2 + (d.pv_module_width-d.pv_module_hole_distance)/2 + d.z_rail_offset;
+    const rails=[];
+    for(let index=0;index<railCount;index++){
+      const railType=(index===0||index===railCount-1)?'Z Rail':'Hat Rail';
+      const signedPosition=sign*position;
+      const [beamZone,beamLevel]=classifyBeamZoneForPosition(geometry,signedPosition);
+      rails.push({'Rail No.':index+1,'Side':sideName,'Rail Type':railType,'Signed Distance from Mid Plane (mm)':signedPosition,'Distance from Mid Plane (mm)':position,'Beam Zone':beamZone,'Beam Level':beamLevel,'Base Plates':1,'Bearing Required Plates':1,'Beam Compensation':0,'Final Plates / Rail / Side':1,'Reason':'Base support plate','Influence Bearing':'','Influence Bearing Distance':''});
+      if(index===0) position += d.pv_module_hole_distance + d.hat_rail_hole_distance/2 - d.z_rail_offset;
+      else position += d.pv_module_hole_distance + d.hat_rail_hole_distance;
+    }
+    return rails;
+  }
+  function closestRailIndicesAroundPosition(rails,bearingPosition){
+    if(!rails.length) return [];
+    const positions=rails.map(r=>asNumber(r['Distance from Mid Plane (mm)'],0));
+    const left=[],right=[];
+    positions.forEach((p,i)=>{if(p<=bearingPosition)left.push(i);if(p>=bearingPosition)right.push(i);});
+    const result=[];
+    if(left.length) result.push(left[left.length-1]);
+    if(right.length && !result.includes(right[0])) result.push(right[0]);
+    if(!result.length){ let nearest=0; for(let i=1;i<positions.length;i++) if(Math.abs(positions[i]-bearingPosition)<Math.abs(positions[nearest]-bearingPosition)) nearest=i; result.push(nearest); }
+    return result;
+  }
+  function calculateModuleSupportPlatesForTracker(project,scheduleRow,geometry,bearingRows){
+    const pvCount=asInt(scheduleRow['PV Modules per Tracker'],0);
+    function calculateSide(sideName){
+      const rails=generateModuleRailPositionsForSide(project,pvCount,geometry,sideName);
+      const candidates=rails.map(rail=>[{plates:1,reason:'Base support plate',bearing_level:rail['Beam Level'],seed_bearing:'',seed_distance:''}]);
+      const sideSign=sideName==='North'?1:-1;
+      const sideBearings=[];
+      for(const b of bearingRows){
+        const signedPos=asNumber(b['Distance from Main Post (mm)'],0);
+        if(sideSign===1 && signedPos<=0) continue;
+        if(sideSign===-1 && signedPos>=0) continue;
+        const bearingType=String(b['Bearing Type']||'');
+        const peak=bearingType==='Bearing 110'?2:bearingType==='Bearing 100'?4:1;
+        if(peak<=1) continue;
+        const [bearingBeamZone,bearingLevel]=classifyBeamZoneForPosition(geometry,signedPos);
+        sideBearings.push({position:Math.abs(signedPos),signed_position:signedPos,bearing_type:bearingType,bearing_beam_zone:bearingBeamZone,bearing_level:bearingLevel,peak});
+      }
+      for(const bearing of sideBearings){
+        for(const seedIndex of closestRailIndicesAroundPosition(rails,bearing.position)){
+          for(let i=0;i<rails.length;i++){
+            const offset=Math.abs(i-seedIndex);
+            const taperRequired=bearing.peak-offset;
+            if(taperRequired<1) continue;
+            const currentLevel=rails[i]['Beam Level'];
+            const beamCompensation=currentLevel-bearing.bearing_level;
+            const finalCandidate=Math.max(1,taperRequired+beamCompensation);
+            const reason=`${bearing.bearing_type} influence from ${niceNumber(bearing.signed_position)} mm; bearing zone=${bearing.bearing_beam_zone}; taper=${taperRequired}; rail level=${currentLevel}; bearing level=${bearing.bearing_level}; beam compensation=${beamCompensation}`;
+            candidates[i].push({plates:finalCandidate,reason,bearing_level:bearing.bearing_level,seed_bearing:bearing.bearing_type,seed_distance:bearing.signed_position});
+          }
+        }
+      }
+      let total=0;
+      rails.forEach((rail,i)=>{
+        const best=candidates[i].reduce((a,b)=>b.plates>a.plates?b:a,candidates[i][0]);
+        rail['Final Plates / Rail / Side']=best.plates;
+        rail['Reason']=best.reason;
+        rail['Influence Bearing']=best.seed_bearing;
+        rail['Influence Bearing Distance']=best.seed_distance;
+        total+=asInt(best.plates,0);
+      });
+      return [rails,total];
+    }
+    const [northRows,totalNorth]=calculateSide('North');
+    const [southRows,totalSouth]=calculateSide('South');
+    return {'Rows':[...northRows,...southRows],'Rows Right Side':northRows,'Rows North Side':northRows,'Rows South Side':southRows,'Module Support Plates / Tracker':totalNorth+totalSouth,'Module Support Plates / Side':totalNorth===totalSouth?totalNorth:`N:${totalNorth} / S:${totalSouth}`,'Module Support Plates / North Side':totalNorth,'Module Support Plates / South Side':totalSouth};
+  }
+
+  function buildSchedule(project){
+    const d=getDesignInputs(project);
+    const rows=[];
+    for(let pvCount=14;pvCount<=56;pvCount++){
+      const trackerQty=asInt(project.tracker_quantities?.[String(pvCount)],0);
+      const geometry=calculateTrackerGeometry(project,pvCount);
+      const row={...geometry,'PV Modules per Tracker':pvCount,'Number of Trackers':trackerQty,'PV Modules Total':pvCount*trackerQty,'Estimated Power (MWp)':pvCount*trackerQty*d.pv_power/1000000};
+      const bearingResult=calculateBearingLayoutForTracker(project,row,geometry);
+      Object.assign(row,{
+        'Bearing Posts / Tracker':bearingResult['Bearing Posts / Tracker'],
+        'Bearing 120 / Tracker':bearingResult['Bearing 120 / Tracker'],
+        'Bearing 110 / Tracker':bearingResult['Bearing 110 / Tracker'],
+        'Bearing 100 / Tracker':bearingResult['Bearing 100 / Tracker'],
+        'Bearing Outside / Tracker':bearingResult['Bearing Outside / Tracker'],
+        'Bearing Status':bearingResult['Bearing Status'],
+        'Bearing Rule Source':bearingResult['Bearing Rule Source'],
+        'Span Type':bearingResult['Span Type'],
+        '_bearing_rows':bearingResult.Rows,
+      });
+      const supportResult=calculateModuleSupportPlatesForTracker(project,row,geometry,bearingResult.Rows);
+      Object.assign(row,{
+        'Module Support Plates / Side':supportResult['Module Support Plates / Side'],
+        'Module Support Plates / North Side':supportResult['Module Support Plates / North Side'],
+        'Module Support Plates / South Side':supportResult['Module Support Plates / South Side'],
+        'Module Support Plates / Tracker':supportResult['Module Support Plates / Tracker'],
+        '_module_support_rows':supportResult.Rows,
+        '_module_support_rows_right':supportResult['Rows Right Side'],
+        '_module_support_rows_north':supportResult['Rows North Side'],
+        '_module_support_rows_south':supportResult['Rows South Side'],
+      });
+      rows.push(row);
+    }
+    return rows;
+  }
+  function buildBearingLayoutTable(activeSchedule){
+    const rows=[];
+    activeSchedule.forEach(scheduleRow=>{
+      const trackerQty=asInt(scheduleRow['Number of Trackers'],0),pvCount=asInt(scheduleRow['PV Modules per Tracker'],0);
+      (scheduleRow._bearing_rows||[]).forEach(bearingRow=>rows.push({...bearingRow,'PV Modules per Tracker':pvCount,'Number of Trackers':trackerQty,'Total Bearing Qty':trackerQty}));
+    });
+    return rows;
+  }
+  function buildModuleSupportLayoutTable(activeSchedule){
+    const rows=[];
+    activeSchedule.forEach(scheduleRow=>{
+      const trackerQty=asInt(scheduleRow['Number of Trackers'],0),pvCount=asInt(scheduleRow['PV Modules per Tracker'],0);
+      (scheduleRow._module_support_rows||[]).forEach(supportRow=>{
+        const item={...supportRow,'PV Modules per Tracker':pvCount,'Number of Trackers':trackerQty};
+        if(!item.Side) item.Side=asNumber(item['Signed Distance from Mid Plane (mm)'] ?? item['Distance from Mid Plane (mm)'],0)>=0?'North':'South';
+        if(!Object.prototype.hasOwnProperty.call(item,'Signed Distance from Mid Plane (mm)')) item['Signed Distance from Mid Plane (mm)']=(item.Side==='North'?1:-1)*asNumber(item['Distance from Mid Plane (mm)'],0);
+        item['Total Plates']=asInt(item['Final Plates / Rail / Side'],0)*trackerQty;
+        rows.push(item);
+      });
+    });
+    return rows;
+  }
+
+  function partMasterRecordText(record){ return [record.Part,record.TAG,record.Description,record['Part Number'],record.Category].join(' '); }
+  function recordIsFastener(record){
+    const text=partMasterRecordText(record).toLowerCase(),category=String(record.Category||'').toLowerCase();
+    return category.includes('fastener') || (` ${text} `).includes(' din ') || text.includes('iso') || text.includes('bolt') || text.includes('nut') || text.includes('washer') || text.includes('screw');
+  }
+  function itemIsFastener(calculatedItem,categoryFallback){
+    const text=`${calculatedItem} ${categoryFallback}`.toLowerCase();
+    return text.includes('fastener') || (` ${text} `).includes(' din ') || text.includes('iso') || text.includes('bolt') || text.includes('nut') || text.includes('washer') || text.includes('screw');
+  }
+  function recordIsValidForCalculatedItem(record,calculatedItem,categoryFallback){
+    const normalizedItem=normalizeText(calculatedItem),normalizedRecord=normalizeText(partMasterRecordText(record));
+    const fastItem=itemIsFastener(calculatedItem,categoryFallback),fastRecord=recordIsFastener(record);
+    if(fastItem && !fastRecord) return false;
+    if(!fastItem && fastRecord) return false;
+    if(normalizedItem==='pvmodule') return normalizedRecord.includes('pvmodule')||normalizedRecord.includes('solarmodule');
+    if(normalizedItem==='bearingpost') return !normalizedRecord.includes('adapter')&&!normalizedRecord.includes('head')&&(normalizedRecord.includes('bearingpost')||normalizedRecord.includes('lateralpile'));
+    if(normalizedItem==='mainbeama') return !normalizedRecord.includes('connection')&&(normalizedRecord.includes('mainbeama')||normalizedRecord.includes('120x120'));
+    if(normalizedItem==='mainbeamclong'||normalizedItem==='mainbeamcshort'){
+      if(!normalizedRecord.includes('mainbeamc')&&!normalizedRecord.includes('100x100')) return false;
+      return normalizedItem==='mainbeamclong'?(normalizedRecord.includes('long')||normalizedRecord.includes('11800')):(normalizedRecord.includes('short')||normalizedRecord.includes('8700'));
+    }
+    if(normalizedItem==='slewdrive') return !normalizedRecord.includes('seat')&&!normalizedRecord.includes('connection')&&(normalizedRecord.includes('slewingdrive')||normalizedRecord.includes('slewdrive'));
+    if(normalizedItem==='limitswitch') return !normalizedRecord.includes('holder')&&!normalizedRecord.includes('trigger')&&!normalizedRecord.includes('frame')&&normalizedRecord.includes('limitswitch');
+    if(normalizedItem==='soltrk') return normalizedRecord.includes('soltrk')&&!normalizedRecord.includes('holder')&&!normalizedRecord.includes('bracket');
+    if(normalizedItem==='soltrkholder') return normalizedRecord.includes('soltrk')&&(normalizedRecord.includes('holder')||normalizedRecord.includes('bracket'));
+    if(normalizedItem==='junctionbox') return normalizedRecord.includes('junctionbox')&&!normalizedRecord.includes('holder')&&!normalizedRecord.includes('bracket');
+    if(normalizedItem==='junctionboxholder') return normalizedRecord.includes('junctionbox')&&(normalizedRecord.includes('holder')||normalizedRecord.includes('bracket'));
+    return true;
+  }
+  function findPartMasterMatch(partMaster,keywords,calculatedItem='',categoryFallback=''){
+    keywords=(keywords||[]).map(v=>String(v||'')).filter(v=>v.trim());
+    if(!keywords.length) return null;
+    const joined=[...keywords,calculatedItem].join(' ');
+    const requestedCodes=joined.toLowerCase().match(/k\d{6}/g)||[];
+    if(requestedCodes.length){
+      for(const record of partMaster){
+        const tagNorm=normalizeText(record.TAG),partNorm=normalizeText(record.Part);
+        if(requestedCodes.some(code=>code===tagNorm||code===partNorm) && recordIsValidForCalculatedItem(record,calculatedItem,categoryFallback)) return record;
+      }
+      for(const record of partMaster){
+        const tagText=`${record.TAG||''} ${record.Part||''}`.toLowerCase();
+        if(requestedCodes.some(code=>tagText.includes(code)) && recordIsValidForCalculatedItem(record,calculatedItem,categoryFallback)) return record;
+      }
+    }
+    const normalizedItem=normalizeText(calculatedItem);
+    if(normalizedItem){
+      for(const record of partMaster){ if(normalizeText(record.Part)===normalizedItem && recordIsValidForCalculatedItem(record,calculatedItem,categoryFallback)) return record; }
+    }
+    if(requestedCodes.length) return null;
+    if(itemIsFastener(calculatedItem,categoryFallback)){
+      const fastKeywords=keywords.map(normalizeText).filter((nk,i)=>nk&&!/^k\d{6}$/.test(keywords[i].toLowerCase()));
+      if(!fastKeywords.length) return null;
+      for(const record of partMaster){
+        if(!recordIsValidForCalculatedItem(record,calculatedItem,categoryFallback)) continue;
+        const norm=normalizeText(partMasterRecordText(record));
+        if(fastKeywords.every(keyword=>norm.includes(keyword))) return record;
+      }
+      return null;
+    }
+    const generic=new Set(['module','rail','bearing','post','beam','main','drive','holder','switch','box']);
+    const normalizedKeywords=keywords.map(normalizeText).filter((nk,i)=>nk&&!generic.has(nk)&&!/^k\d{6}$/.test(keywords[i].toLowerCase()));
+    let best=null,bestScore=0;
+    for(const record of partMaster){
+      if(!recordIsValidForCalculatedItem(record,calculatedItem,categoryFallback)) continue;
+      const norm=normalizeText(partMasterRecordText(record));
+      const score=normalizedKeywords.reduce((sum,kw)=>sum+(norm.includes(kw)?1:0),0);
+      if(score>bestScore){bestScore=score;best=record;}
+    }
+    return bestScore>0?best:null;
+  }
+
+  // Exact V3.11 automatic BOM definitions, kept in the same order as bom_definitions.py.
+  const BOM_DEFINITIONS = [
+    ['Main Post',r=>asInt(r['Number of Trackers']),['main post','drive pile','hea 140'],'Structure / Posts','Total Trackers QTY'],
+    ['Slew Drive Seat',r=>2*asInt(r['Number of Trackers']),['slew drive seat','slew seat'],'Drive / Slew','2 × Main Post'],
+    ['Bearing Post',r=>asInt(r['Bearing Posts / Tracker'])*asInt(r['Number of Trackers']),['bearing post','lateral pile','c 160'],'Structure / Posts','Calculated from bearing distance rules'],
+    ['Bearing Adapter',r=>asInt(r['Bearing Posts / Tracker'])*asInt(r['Number of Trackers']),['bearing adapter','adapter bearing','lateral pile head'],'Drive / Bearing','Bearing Post'],
+    ['Main Beam A',r=>r['Tracker Type']==='Long'?2*asInt(r['Number of Trackers']):0,['main beam a','120x120'],'Main Beams','Long trackers only; 2 per tracker'],
+    ['Main Beam B',r=>2*asInt(r['Number of Trackers']),['main beam b','110x110'],'Main Beams','2 per tracker'],
+    ['Main Beam C - Long',r=>((asNumber(r['Main Beam C Required Length North'])>0&&String(r['Main Beam C Stock Suggestion North']).includes('11800')?1:0)+(asNumber(r['Main Beam C Required Length South'])>0&&String(r['Main Beam C Stock Suggestion South']).includes('11800')?1:0))*asInt(r['Number of Trackers']),['main beam c','100x100','11800','long'],'Main Beams','Counted only when required length > 0; per tracker side; odd trackers may have different north/south C length'],
+    ['Main Beam C - Short',r=>((asNumber(r['Main Beam C Required Length North'])>0&&String(r['Main Beam C Stock Suggestion North']).includes('8700')?1:0)+(asNumber(r['Main Beam C Required Length South'])>0&&String(r['Main Beam C Stock Suggestion South']).includes('8700')?1:0))*asInt(r['Number of Trackers']),['main beam c','100x100','8700','short'],'Main Beams','Counted only when required length > 0; per tracker side; odd trackers may have different north/south C length'],
+    ['Slew Drive Connection',r=>r['Tracker Type']!=='Long'?2*asInt(r['Number of Trackers']):0,['slew drive connection','beam connection'],'Main Beams','Short trackers only; 2 per tracker'],
+    ['Hat rail',r=>Math.max(asInt(r['PV Modules per Tracker'])-2,0)*asInt(r['Number of Trackers']),['hat rail','hatrail','pv rail 790x75'],'Module Rails / Support','PV Modules - 2 per tracker'],
+    ['Z rail',r=>4*asInt(r['Number of Trackers']),['z rail','zrail','end pv rail'],'Module Rails / Support','4 per tracker'],
+    ['Module Rail Fixing Part',r=>(Math.max(asInt(r['PV Modules per Tracker'])-2,0)+4+1)*asInt(r['Number of Trackers']),['module rail fixing','rail fixing','fixing part','rail lower clamp','lower clamp'],'Module Rails / Support','Hat Rail + Z Rail + 1 per tracker'],
+    ['Module Rail Support Plate',r=>asInt(r['Module Support Plates / Tracker'])*asInt(r['Number of Trackers']),['k001099','module support plate','support plate','module rail support plate'],'Module Rails / Support','Existing formula kept: rail-by-rail bearing influence, taper, and main beam height compensation'],
+    ['Module Rail Elevation Plate',r=>2*asInt(r['Bearing 100 / Tracker'])*asInt(r['Number of Trackers']),['k001573','module elevation plate','elevation plate','module rail elevation plate'],'Module Rails / Support','2 × Bearing 100'],
+    ['Limit Switch Holder',r=>asInt(r['Number of Trackers']),['limit switch holder'],'Steel Structure','Main Post'],
+    ['Limit Switch Trigger',r=>asInt(r['Number of Trackers']),['limit switch trigger','limit switch frame'],'Steel Structure','Main Post'],
+    ['SOLTRK Holder',r=>ceilHalf(asInt(r['Number of Trackers'])),['soltrk holder','soltrk bracket'],'Steel Structure','ceil(Main Post / 2)'],
+    ['Junction Box Holder',r=>Math.floor(asInt(r['Number of Trackers'])/2),['k001511','junction box holder','junction holder','j-box holder'],'Steel Structure','floor(Tracker / 2) = Junction Box Qty'],
+    ['k001538 - Anemometer Bracket',r=>ceilUp(asInt(r['Number of Trackers'])/48),['k001538','anemometer bracket','anemometer holder plate'],'Steel Structure','ceil(Tracker / 48) per array type'],
+    ['Bearing 120',r=>asInt(r['Bearing 120 / Tracker'])*asInt(r['Number of Trackers']),['bearing 120','gsqb 120','120 bearing'],'Drive / Bearing','Calculated from bearing post positions on 120 beam zone'],
+    ['Bearing 110',r=>asInt(r['Bearing 110 / Tracker'])*asInt(r['Number of Trackers']),['bearing 110','gsqb 110','110 bearing'],'Drive / Bearing','Calculated from bearing post positions on 110 beam zone'],
+    ['Bearing 100',r=>asInt(r['Bearing 100 / Tracker'])*asInt(r['Number of Trackers']),['bearing 100','gsqb 100','100 bearing'],'Drive / Bearing','Calculated from bearing post positions on 100 beam zone'],
+    ['PV Module',r=>asInt(r['PV Modules per Tracker'])*asInt(r['Number of Trackers']),['pv module','solar module'],'PV Module','PV Modules per Tracker × Number of Trackers'],
+    ['Slew Drive',r=>asInt(r['Number of Trackers']),['slewing drive','slew drive'],'Slew Drive','Main Post'],
+    ['Limit Switch',r=>2*asInt(r['Number of Trackers']),['limit switch'],'Electrical','2 × Main Post'],
+    ['SOLTRK',r=>ceilHalf(asInt(r['Number of Trackers'])),['soltrk'],'Electrical','ceil(Main Post / 2)'],
+    ['Junction Box',r=>Math.floor(asInt(r['Number of Trackers'])/2),['junction box','j-box','junction'],'Electrical','floor(Tracker / 2)'],
+    ['k001390 - Cable gland pg13.5',r=>2*asInt(r['Number of Trackers']),['k001390','cable gland','pg13.5'],'Electrical','2 × Tracker'],
+    ['k001405 - Safeguard-M48V-8-13_rev03',r=>ceilUp((1/48)*asInt(r['Number of Trackers'])),['k001405','safeguard','m48v'],'Electrical','ceil((1/48) × Tracker)'],
+    ['k001406 - Safeguard-S48V-8-13_rev03',r=>ceilUp((1/48)*asInt(r['Number of Trackers'])),['k001406','safeguard','s48v'],'Electrical','ceil((1/48) × Tracker)'],
+    ['k001525 - Higeco GWC V4 4DIN',r=>ceilUp(.01*asInt(r['Number of Trackers'])),['k001525','higeco','gwc','4din','power supply'],'Electrical','ceil(0.01 × Tracker)'],
+    ['k001552 - Scada Power supply HDR-30-24',r=>ceilUp(.01*asInt(r['Number of Trackers'])),['k001552','scada','power supply','hdr-30-24'],'Electrical','ceil(0.01 × Tracker)'],
+    ['k001542 - Scada enclosure GW40028',r=>ceilUp(.01*asInt(r['Number of Trackers'])),['k001542','scada','enclosure','gw40028','electrical enclosure'],'Electrical','ceil(0.01 × Tracker)'],
+    ['k001536 - Anemometer',r=>ceilUp((1/48)*asInt(r['Number of Trackers'])),['k001536','anemometer','cold climates','0103011303'],'Electrical','ceil((1/48) × Tracker)'],
+    ['k001164 - DIN 933 ISO 4017 - M20 × 55',r=>8*asInt(r['Number of Trackers']),['k001164','din 933','iso 4017','m20','55'],'Fasteners / Slew Drive Seat','8 × Main Post'],
+    ['k001010 - DIN 934 ISO 4032 - M20',r=>8*asInt(r['Number of Trackers']),['k001010','din 934','iso 4032','m20'],'Fasteners / Slew Drive Seat','8 × Main Post'],
+    ['k001154 - DIN 125 ISO 7089 - A21 (M20)',r=>16*asInt(r['Number of Trackers']),['k001154','din 125','iso 7089','a21','m20'],'Fasteners / Slew Drive Seat','16 × Main Post'],
+    ['k001163 - DIN 127B - A20',r=>8*asInt(r['Number of Trackers']),['k001163','din 127b','a20'],'Fasteners / Slew Drive Seat','8 × Main Post'],
+    ['k001231 - DIN 933 ISO 4017 - M18 × 80',r=>4*asInt(r['Number of Trackers']),['k001231','din 933','iso 4017','m18','80'],'Fasteners / Slew Drive','4 × Main Post'],
+    ['k001228 - DIN 934 ISO 4032 - M18',r=>4*asInt(r['Number of Trackers']),['k001228','din 934','iso 4032','m18'],'Fasteners / Slew Drive','4 × Main Post'],
+    ['k001238 - DIN 7349 ISO 8738 - A19 (M18)',r=>4*asInt(r['Number of Trackers']),['k001238','din 7349','iso 8738','a19','m18'],'Fasteners / Slew Drive','4 × Main Post'],
+    ['k001230 - DIN 127B - A18',r=>4*asInt(r['Number of Trackers']),['k001230','din 127b','a18'],'Fasteners / Slew Drive','4 × Main Post'],
+    ['DIN 7967 - M18',r=>2*asInt(r['Number of Trackers']),['din 7967','m18'],'Fasteners / Slew Drive','2 × Main Post'],
+    ['DIN 936 ISO 4035 - M18',r=>2*asInt(r['Number of Trackers']),['din 936','iso 4035','m18'],'Fasteners / Slew Drive','2 × Main Post'],
+    ['k001129 - DIN 912 ISO 4762 - M14 × 180 - 40',r=>2*asInt(r['Bearing Posts / Tracker'])*asInt(r['Number of Trackers']),['k001129','din 912','iso 4762','m14','180'],'Fasteners / Bearing Adapter','2 × Bearing Adapter'],
+    ['k001125 - DIN 933 ISO 4017 - M14 × 35',r=>4*asInt(r['Bearing Posts / Tracker'])*asInt(r['Number of Trackers']),['k001125','din 933','iso 4017','m14','35'],'Fasteners / Bearing Adapter','4 × Bearing Adapter'],
+    ['k001124 - DIN 934 ISO 4032 - M14',r=>4*asInt(r['Bearing Posts / Tracker'])*asInt(r['Number of Trackers']),['k001124','din 934','iso 4032','m14'],'Fasteners / Bearing Adapter','4 × Bearing Adapter'],
+    ['k001401 - DIN 7985 ISO 7045 - M4 × 40',r=>4*asInt(r['Number of Trackers']),['k001401','din 7985','iso 7045','m4','40'],'Fasteners / Limit Switch','4 × Main Post'],
+    ['k001130 - DIN 9021 ISO 7093 - 16 (M14)',r=>4*asInt(r['Bearing Posts / Tracker'])*asInt(r['Number of Trackers']),['k001130','din 9021','iso 7093','m14','16'],'Fasteners / Bearing Adapter','4 × Bearing Adapter'],
+    ['k001123 - DIN 6796 ISO 10683 - A15 (M14)',r=>4*asInt(r['Bearing Posts / Tracker'])*asInt(r['Number of Trackers']),['k001123','din 6796','iso 10683','a15','m14'],'Fasteners / Bearing Adapter','4 × Bearing Adapter'],
+    ['k001137 - Din 982 ISO 7040 - M14',r=>2*asInt(r['Bearing Posts / Tracker'])*asInt(r['Number of Trackers']),['k001137','din 982','iso 7040','m14'],'Fasteners / Bearing Adapter','2 × Bearing Adapter'],
+    ['k001385 - DIN 933 ISO 4017 - M16 × 30',r=>16*asInt(r['Number of Trackers']),['k001385','din 933','iso 4017','m16','30'],'Fasteners / Main Beams','16 × Main Post'],
+    ['k001127 - DIN 125 ISO 7089 - A17 (M16)',r=>22*asInt(r['Number of Trackers']),['k001127','din 125','iso 7089','a17','m16'],'Fasteners / Main Beams','22 × Tracker'],
+    ['k001166 - DIN 127B - A16',r=>16*asInt(r['Number of Trackers']),['k001166','din 127b','a16'],'Fasteners / Main Beams','16 × Main Post'],
+    ['k001388 - DIN 93x Special Thread - M12 × 150 - 46',r=>16*asInt(r['Number of Trackers']),['k001388','din 93x','m12','150'],'Fasteners / Main Beams','8 × Main Beam B'],
+    ['k001157 - DIN 9021 ISO 7093 - 13 (M12)',r=>32*asInt(r['Number of Trackers']),['k001157','din 9021','iso 7093','m12','13'],'Fasteners / Main Beams','16 × Main Beam B'],
+    ['k001013 - DIN 982 ISO 7040 - M12',r=>16*asInt(r['Number of Trackers']),['k001013','din 982','iso 7040','m12'],'Fasteners / Main Beams','= k001388 = 8 × Main Beam B'],
+    ['k001151 - DIN 93x Special Thread - M8 × 150 - 50',r=>8*asInt(r['Number of Trackers']),['k001151','din 93x','m8','150'],'Fasteners / Module Rails','2 × Z Rail'],
+    ['k001239 - DIN 522 - 19 × 39 × 3 (M18)',r=>4*asInt(r['Number of Trackers']),['k001239','din 522','19','39','m18'],'Fasteners / Slew Drive','4 × Tracker'],
+    ['k001576 - Square Washer 38×38×9.5×6 (M8)',r=>2*Math.max(asInt(r['PV Modules per Tracker'])-2,0)*asInt(r['Number of Trackers']),['k001576','square washer','38×38','38x38','hat rail'],'Fasteners / Hat rail','2 × Hat rail'],
+    ['k001235 - DIN 522 - 8.5 × 18 × 3 (M8)',r=>8*asInt(r['Number of Trackers']),['k001235','din 522','8.5','18','m8'],'Fasteners / Module Rails','2 × Z rail'],
+    ['k001074 - DIN 982 ISO 7040 - M8',r=>2*(Math.max(asInt(r['PV Modules per Tracker'])-2,0)+4)*asInt(r['Number of Trackers']),['k001074','din 982','iso 7040','m8'],'Fasteners / Module Rails','2 × Rail'],
+    ['k001575 - DIN 603 ISO 8677 - M8 × 150 - 50',r=>2*Math.max(asInt(r['PV Modules per Tracker'])-2,0)*asInt(r['Number of Trackers']),['k001575','din 603','iso 8677','m8'],'Fasteners / Hat Rails','2 × Hat Rail'],
+    ['k001503 - DIN 976-1 - M6 × 160',r=>2*asInt(r['Number of Trackers']),['k001503','din 976','m6','160'],'Fasteners / SOLTRK Holder','2 × Main Post'],
+    ['k001502 - DIN 9021 ISO 7093 - A6',r=>4*asInt(r['Number of Trackers']),['k001502','din 9021','iso 7093','a6'],'Fasteners / SOLTRK Holder','4 × Main Post'],
+    ['k001501 - DIN 986 - M6',r=>2*asInt(r['Number of Trackers']),['k001501','din 986','m6'],'Fasteners / SOLTRK Holder','2 × Main Post'],
+    ['k001504 - DIN 982 ISO 7040 - M6 - A2K',r=>2*asInt(r['Number of Trackers']),['k001504','din 982','iso 7040','m6','a2k'],'Fasteners / SOLTRK Holder','2 × Main Post'],
+    ['k001509 - DIN 9021 ISO 7093 - A 4.3 (M4)',r=>4*asInt(r['Number of Trackers'])+4*Math.floor(asInt(r['Number of Trackers'])/2),['k001509','din 9021','iso 7093','a4.3','m4'],'Fasteners / Junction Box + Limit Switch','4 × Tracker for Limit Switch + 4 × floor(Tracker / 2) for Junction Box'],
+    ['k001510 - DIN 912 ISO 4762 - M4 × 25',r=>ceilUp(2*asInt(r['Number of Trackers'])),['k001510','din 912','iso 4762','m4','25'],'Fasteners / SOLTRK + Limit Switch','ceil(2 × Tracker)'],
+    ['k001402 - DIN 982 ISO 7040 - M4',r=>6*asInt(r['Number of Trackers']),['k001402','din 982','iso 7040','m4'],'Fasteners / SOLTRK + Limit Switch','4 × SOLTRK + 2 × limit switch'],
+    ['k001454 - DIN 7985 ISO 7045 - M5 × 16',r=>4*Math.floor(asInt(r['Number of Trackers'])/2),['k001454','din 7985','iso 7045','m5','16'],'Fasteners / Junction Box','4 × floor(Tracker / 2) = 4 × Junction Box'],
+    ['k001513 - DIN 982 ISO 7040 - M5',r=>2*asInt(r['Number of Trackers'])+ceilUp((3/48)*asInt(r['Number of Trackers'])),['k001513','din 982','iso 7040','m5'],'Fasteners / SOLTRK Holder Plate + Anemometer','2 × Tracker + ceil((3/48) × Tracker), per array type'],
+    ['k001539 - DIN 7985 ISO 7045 - M5 × 20',r=>ceilUp((3/48)*asInt(r['Number of Trackers'])),['k001539','din 7985','iso 7045','m5','20'],'Fasteners / Anemometer','ceil((3/48) × Anemometer) per array type'],
+    ['k001479 - Tube Spacer',r=>32*asInt(r['Number of Trackers']),['k001479','tube spacer','m12','16','12.7','13.3'],'Fastener','2 × k001388'],
+  ];
+
+  function buildProjectBom(project,activeSchedule,partMaster,partMasterColumns=PART_COLUMNS){
+    const selectedRows=activeSchedule.filter(r=>asInt(r['Number of Trackers'])>0).slice().sort((a,b)=>asInt(b['PV Modules per Tracker'])-asInt(a['PV Modules per Tracker']));
+    const qtyColumns=selectedRows.map(r=>`${asInt(r['PV Modules per Tracker'])}-PV Qty`);
+    const baseColumns=(partMasterColumns||PART_COLUMNS).filter(col=>!['note','notes'].includes(normalizeText(col)));
+    const displayBaseColumns=baseColumns.map(col=>col==='Part'?'Part Name':col);
+    const columns=['No.',...displayBaseColumns,...qtyColumns,'Total Qty'];
+    const previewColumns=['No.',...displayBaseColumns,'Calculation Note'];
+    const rows=[];
+    const notesByTag={},notesByPart={};
+
+    for(const [calculatedItem,formula,keywords,categoryFallback,note,unit='pcs'] of BOM_DEFINITIONS){
+      const quantitiesByPv={};
+      selectedRows.forEach(scheduleRow=>{ quantitiesByPv[asInt(scheduleRow['PV Modules per Tracker'])]=asNumber(formula(scheduleRow),0); });
+      const match=findPartMasterMatch(partMaster,keywords,calculatedItem,categoryFallback);
+      if(!match) continue; // V3.11 authoritative Part Master.
+      if(note){
+        const tagKey=normalizeText(match.TAG),partKey=normalizeText(match.Part);
+        if(tagKey) notesByTag[tagKey]=note;
+        if(partKey) notesByPart[partKey]=note;
+        const identityText=[calculatedItem,...keywords].join(' ');
+        for(const code of identityText.toLowerCase().match(/k\d{6}/g)||[]) notesByTag[normalizeText(code)]=note;
+        const calculatedPartKey=normalizeText(calculatedItem); if(calculatedPartKey && !notesByPart[calculatedPartKey]) notesByPart[calculatedPartKey]=note;
+      }
+      const totalQty=Object.values(quantitiesByPv).reduce((sum,v)=>sum+asNumber(v,0),0);
+      if(totalQty<=0) continue;
+      const row={};
+      for(const column of baseColumns) row[column]=match[column] ?? '';
+      if(Object.prototype.hasOwnProperty.call(row,'Part')) row['Part Name']=row.Part;
+      selectedRows.forEach(scheduleRow=>{
+        const pv=asInt(scheduleRow['PV Modules per Tracker']);
+        const value=asNumber(quantitiesByPv[pv],0);
+        row[`${pv}-PV Qty`]=value?niceNumber(value):'';
+      });
+      row['Total Qty']=niceNumber(totalQty);
+      row['Calculation Note']=note;
+      rows.push(row);
+    }
+
+    const manualValues=project.manual_parts || {};
+    const manualList=Array.isArray(manualValues)?manualValues:Object.values(manualValues);
+    for(const values of manualList){
+      if(!values || !values.include) continue;
+      const qty=asNumber(values.qty,0); if(qty<=0) continue;
+      const itemName=String(values.Item || values.item || '').trim() || String(values.Description || values.description || '').trim() || 'Manual Standard Part';
+      const row={}; for(const column of baseColumns) row[column]='';
+      if('Part' in row){row.Part=itemName;row['Part Name']=itemName;}
+      if('TAG' in row) row.TAG=values.TAG ?? values.tag ?? '';
+      if('Description' in row) row.Description=values.Description ?? values.description ?? '';
+      if('Part Number' in row) row['Part Number']=values['Part Number'] ?? values.partNumber ?? '';
+      if('Category' in row) row.Category=values.Category ?? values.category ?? '';
+      if('Unit' in row) row.Unit=values.Unit ?? values.unit ?? '';
+      qtyColumns.forEach(column=>row[column]='');
+      row['Total Qty']=niceNumber(qty);
+      row['Calculation Note']='Manual standard part entered by user';
+      rows.push(row);
+    }
+    rows.forEach((row,index)=>{
+      row['No.']=index+1;
+      for(const column of columns){ if(row[column]===null||row[column]===undefined||row[column]==='') row[column]=0; }
+    });
+    return {columns,previewColumns,rows,notesByTag,notesByPart};
+  }
+
+  function buildPartMasterPreview(partMaster,bomResult){
+    return partMaster.map((record,index)=>{
+      const row={'No.':index+1,'Part Name':record.Part??'',TAG:record.TAG??'',Description:record.Description??'','Part Number':record['Part Number']??'',Category:record.Category??'',Unit:record.Unit??''};
+      const tag=normalizeText(record.TAG),part=normalizeText(record.Part);
+      row['Calculation Note']=bomResult.notesByTag[tag] ?? bomResult.notesByPart[part] ?? '';
+      row._part_master_index=index;
+      return row;
+    });
+  }
+
+  function calculateProject(project,partMaster,partMasterColumns=PART_COLUMNS){
+    const schedule=buildSchedule(project);
+    const active=schedule.filter(row=>asInt(row['Number of Trackers'])>0);
+    const bearing=buildBearingLayoutTable(active);
+    const support=buildModuleSupportLayoutTable(active);
+    const bom=buildProjectBom(project,active,partMaster,partMasterColumns);
+    const partMasterPreview=buildPartMasterPreview(partMaster,bom);
+    const totalTrackers=schedule.reduce((sum,r)=>sum+asInt(r['Number of Trackers']),0);
+    const totalModules=schedule.reduce((sum,r)=>sum+asInt(r['PV Modules Total']),0);
+    const totalPower=schedule.reduce((sum,r)=>sum+asNumber(r['Estimated Power (MWp)']),0);
+    return {schedule,active,bearing,support,bom,partMasterPreview,kpis:{totalTrackers,totalModules,totalPower,bomItems:bom.rows.length,mode:getBomModeText(project)}};
+  }
+
+  global.LumaEngine={
+    PART_COLUMNS,DEFAULT_INPUTS,BOM_DEFINITIONS,
+    normalizeText,asNumber,asInt,niceNumber,firstNonEmpty,ceilHalf,ceilUp,
+    fastenerPartNameFromDescription,loadInternalPartMaster,defaultTrackerQuantities,defaultManualParts,defaultBearingRule,normalizeBearingRule,
+    getDesignInputs,calculateAutoPvModuleGap,cadBlocksAreAvailable,getBomModeText,getSpanLimits,estimateSpanCountForLength,
+    calculateTrackerGeometry,getBearingRuleForPv,getPositionsFromRule,classifyBearing,classifyBeamZoneForPosition,calculateEstimatedBearingPositions,calculateBearingLayoutForTracker,
+    generateModuleRailPositionsForSide,closestRailIndicesAroundPosition,calculateModuleSupportPlatesForTracker,buildSchedule,buildBearingLayoutTable,buildModuleSupportLayoutTable,
+    recordIsFastener,itemIsFastener,recordIsValidForCalculatedItem,findPartMasterMatch,buildProjectBom,buildPartMasterPreview,calculateProject,
+  };
+})(globalThis);

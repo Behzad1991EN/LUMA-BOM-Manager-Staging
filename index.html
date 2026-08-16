@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light" />
+  <title>LUMA BOM Manager</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <aside class="sidebar" aria-label="Sidebar">
+    <h1>Sidebar</h1>
+
+    <section class="sidebar-section">
+      <h2>WORKSPACE</h2>
+      <div class="two-col-buttons">
+        <button id="newWorkspaceBtn">New</button><button id="openWorkspaceBtn">Open</button>
+        <button id="saveWorkspaceBtn">Save</button><button id="saveAsWorkspaceBtn">Save As</button>
+      </div>
+    </section>
+
+    <div class="sidebar-separator"></div>
+
+    <section class="sidebar-section">
+      <h2>PROJECTS</h2>
+      <label class="project-search-box" title="Search projects by project code or project name.">
+        <span>⌕</span><input id="projectSearch" type="search" aria-label="Project Search" />
+      </label>
+      <select id="projectList" class="project-list" size="6" aria-label="Projects"></select>
+      <div class="two-col-buttons project-buttons">
+        <button id="newProjectBtn">New Project</button><button id="duplicateProjectBtn">Duplicate</button>
+        <button id="renameProjectBtn">Rename</button><button id="deleteProjectBtn" class="danger">Delete</button>
+      </div>
+    </section>
+
+    <div class="sidebar-separator"></div>
+
+    <section class="sidebar-section">
+      <h2>ACTIVE PROJECT</h2>
+      <div class="kpi"><span>Total Trackers</span><strong id="kpiTrackers">0</strong></div>
+      <div class="kpi"><span>Total PV Modules</span><strong id="kpiModules">0</strong></div>
+      <div class="kpi"><span>Plant Power</span><strong id="kpiPower">0.000 MWp</strong></div>
+      <div class="kpi"><span>BOM Line Items</span><strong id="kpiBomItems">0</strong></div>
+      <div class="kpi"><span>Mode</span><strong id="kpiMode">CAD Block</strong></div>
+      <button id="resetProjectBtn" class="danger wide">Reset Current Project Inputs</button>
+    </section>
+
+    <div class="sidebar-separator"></div>
+
+    <section class="sidebar-section export-section">
+      <h2>EXPORT</h2>
+      <div class="two-col-buttons">
+        <button id="exportActiveBtn" class="export">Active Project</button><button id="exportAllBtn" class="export">All Projects</button>
+        <button id="changelogBtn">Changelog</button><span></span>
+      </div>
+      <div class="version">Version 3.11 · 27.07.2026<br/>By Behzad Eydiyoon</div>
+    </section>
+  </aside>
+
+  <main class="main" id="mainContent">
+    <header class="app-header">
+      <div class="header-copy">
+        <h1>LUMA BOM Manager</h1>
+        <p>Use Inputs → Array Table → review selected arrays, BOM, support plates and tracker sketch.</p>
+        <strong id="currentProjectHeader">Current Project: SAMPLE — Sample Project</strong>
+      </div>
+      <img src="KSI-Logo.png" alt="KSI" class="logo" />
+    </header>
+
+    <nav id="tabs" class="tabs" aria-label="Application tabs"></nav>
+    <div class="notebook-body">
+      <section id="tabInputs" class="tab-page"></section>
+      <section id="tabArray" class="tab-page"></section>
+      <section id="tabSelected" class="tab-page"></section>
+      <section id="tabBearing" class="tab-page"></section>
+      <section id="tabSupport" class="tab-page"></section>
+      <section id="tabBom" class="tab-page"></section>
+      <section id="tabPartMaster" class="tab-page"></section>
+      <section id="tabSketch" class="tab-page"></section>
+      <section id="tabLogic" class="tab-page"></section>
+    </div>
+  </main>
+
+  <div id="fixedHorizontalScroll" class="fixed-h-scroll" aria-hidden="true"><div id="fixedHorizontalScrollInner"></div></div>
+
+  <input id="workspaceFileInput" type="file" accept=".luma,application/json" hidden />
+  <input id="partMasterFileInput" type="file" accept=".json,application/json" hidden />
+
+  <div id="modalBackdrop" class="modal-backdrop" hidden>
+    <div id="modalBox" class="modal-box" role="dialog" aria-modal="true">
+      <div class="modal-header"><h2 id="modalTitle"></h2><button id="modalCloseBtn" class="icon-button" aria-label="Close">×</button></div>
+      <div id="modalBody" class="modal-body"></div>
+      <div id="modalActions" class="modal-actions"></div>
+    </div>
+  </div>
+
+  <script src="data.js"></script>
+  <script src="engine.js"></script>
+  <script src="xlsx-lite.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

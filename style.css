@@ -943,6 +943,158 @@ th.wrap {
 
 
 /* =========================================================
+   STEEL STRUCTURE ANALYSIS
+   ========================================================= */
+
+.analysis-title-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+}
+
+.analysis-ratio {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    min-width: 165px;
+    padding: 10px 13px;
+    border: 1px solid #8ABAB5;
+    background: #EDF9F7;
+}
+
+.analysis-ratio span {
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.analysis-ratio strong {
+    color: var(--export);
+    font-size: 21px;
+}
+
+.analysis-controls {
+    display: flex;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    padding: 12px;
+    margin: 0 0 14px;
+    border: 1px solid var(--border);
+    background: #FFF5E4;
+}
+
+.analysis-controls label {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 210px;
+    font-weight: 700;
+}
+
+.analysis-controls select,
+.analysis-controls input {
+    min-width: 210px;
+}
+
+.analysis-filter-controls label {
+    min-width: 320px;
+}
+
+.analysis-price-actions {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding-bottom: 1px;
+}
+
+.analysis-price-actions button {
+    min-width: 72px;
+}
+
+.analysis-price-actions button:disabled {
+    cursor: not-allowed;
+    opacity: .5;
+}
+
+.analysis-summary {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(180px, 1fr));
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+.analysis-card {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    min-height: 88px;
+    padding: 13px;
+    border: 1px solid var(--border);
+    background: var(--card);
+}
+
+.analysis-card span {
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.analysis-card strong {
+    color: var(--accent-dark);
+    font-size: 21px;
+}
+
+.analysis-cost-card {
+    border-color: #8ABAB5;
+    background: #EDF9F7;
+}
+
+.analysis-cost-card strong {
+    color: var(--export);
+}
+
+.analysis-cost-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.analysis-warning {
+    padding: 9px 11px;
+    margin: 0 0 14px;
+    border: 1px solid #E5A63B;
+    background: #FFF4D6;
+    color: #8A4B08;
+    font-weight: 700;
+}
+
+.analysis-detail-title {
+    margin-top: 18px;
+}
+
+#analysisPriceRegistry tbody tr {
+    cursor: pointer;
+}
+
+@media (max-width: 1250px) {
+    .analysis-summary {
+        grid-template-columns: repeat(2, minmax(220px, 1fr));
+    }
+}
+
+@media (max-width: 850px) {
+    .analysis-title-row {
+        flex-direction: column;
+    }
+
+    .analysis-ratio {
+        align-items: flex-start;
+    }
+}
+
+
+/* =========================================================
    LOGIC / TRACKER SKETCH CONTROLS
    ========================================================= */
 

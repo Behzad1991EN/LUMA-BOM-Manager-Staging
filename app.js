@@ -2,14 +2,14 @@
 
 const E = LumaEngine;
 const APP_NAME = 'LUMA BOM Manager';
-const APP_VERSION = 'Version 3.20';
-const APP_RELEASE_DATE = '18.08.2026';
+const APP_VERSION = 'Version 3.30';
+const APP_RELEASE_DATE = '19.08.2026';
 const APP_AUTHOR = 'Behzad Eydiyoon';
 const WORKSPACE_FORMAT_VERSION = '1.0';
-const RECOVERY_KEY = 'luma_bom_manager_v3_20_browser_recovery';
-const ACTIVE_TAB_KEY = 'luma_bom_manager_v3_20_active_tab';
-const LEGACY_RECOVERY_KEY = 'luma_bom_manager_v3_11_browser_recovery';
-const LEGACY_ACTIVE_TAB_KEY = 'luma_bom_manager_v3_11_active_tab';
+const RECOVERY_KEY = 'luma_bom_manager_v3_30_browser_recovery';
+const ACTIVE_TAB_KEY = 'luma_bom_manager_v3_30_active_tab';
+const LEGACY_RECOVERY_KEY = 'luma_bom_manager_v3_21_browser_recovery';
+const LEGACY_ACTIVE_TAB_KEY = 'luma_bom_manager_v3_21_active_tab';
 
 const TABS = [
   ['Inputs','tabInputs'],
@@ -20,8 +20,17 @@ const TABS = [
   ['Project BOM','tabBom'],
   ['Part Master','tabPartMaster'],
   ['Tracker Sketch','tabSketch'],
+  ['Analysis','tabAnalysis'],
   ['Calculation Logic','tabLogic'],
 ];
+
+const ANALYSIS_CURRENCIES = Object.freeze([
+  ['USD','USD - US Dollar'],
+  ['EUR','EUR - Euro'],
+  ['TRY','TRY - Turkish Lira'],
+  ['CNY','CNY - Chinese Yuan'],
+  ['IRR','IRR - Iranian Rial'],
+]);
 
 const SELECTED_ARRAY_COLUMNS = [
   'PV Modules per Tracker','Number of Trackers','Tracker Type','Span Type','Bearing Rule Source','Modules / Side','PV Gaps / Side','Tracker Length (mm)','Calculated End Gap','First Piece Name','First Piece Length','Main Beam B Length','Main Beam C Required Length','Main Beam C Stock Suggestion','Bearing Posts / Tracker','Bearing 120 / Tracker','Bearing 110 / Tracker','Bearing 100 / Tracker','Module Support Plates / Tracker','Bearing Status'
@@ -47,8 +56,9 @@ const CHANGELOG = {
   '3.11': ['Added delete button to part master tab','Added optional fastener contingency percentage column to Project BOM'],
   '3.20': ['Added optional Weight, Material and Contingency columns' , 'Added PV module longitudinal holes distance in input tab','Added a dropdown to select SOLTRK version','Modified the SOLTRK and Junction Box rows to allow manual editing.'
   ],
+  '3.30': ['Added Analysis tab with steel-structure weight, material filtering, per-material price registration, multi-currency costs, and kg/kW','Temporarily changed k001099 calculation to Hat rail + Z rail','Updated k001509 to include 4 × Junction Box Holder Plate for both SOLTRK versions','Updated k001503 to DIN 976-1 - M6 × 1000 and ceil(previous result / 5)','Updated k001513 to include 4 × SOLTRK 3.0 Holder Plate in SOLTRK 3.0 mode','Added version-specific SOLTRK and Holder items: 2.0 uses k001534/k001505; 3.0 uses k001549/k001568']
 };
-const CHANGELOG_DATES = {'1.00':'26.05.2026','2.00':'08.06.2026','2.10':'16.06.2026','2.20':'17.06.2026','3.00':'08.07.2026','3.10':'22.07.2026','3.11':'27.07.2026','3.20':'18.08.2026'};
+const CHANGELOG_DATES = {'1.00':'26.05.2026','2.00':'08.06.2026','2.10':'16.06.2026','2.20':'17.06.2026','3.00':'08.07.2026','3.10':'22.07.2026','3.11':'27.07.2026','3.20':'18.08.2026','3.30':'19.08.2026'};
 
 let workspace = null;
 let current = null;
@@ -61,7 +71,7 @@ let selectedBomRows = new Set();
 let customRuleSelectedPv = null;
 let uiState = {
   customRule:{pv:'14',mode:'Symmetrical',symmetrical_distance:'8320',semi_pair_count:3,asym_post_count:3,semi_pair_gaps:['8320','7350','6500','',''],asym_north_gaps:['8320','7350','6500','',''],asym_south_gaps:['8320','7350','6500','','']},
-  projectBomSearch:'',partMasterSearch:'',showPv:true,showSupport:true,showRails:true,showBeams:true,
+  projectBomSearch:'',partMasterSearch:'',analysisPriceEditor:{},showPv:true,showSupport:true,showRails:true,showBeams:true,
 };
 let fixedScrollTarget = null;
 let fixedScrollSyncing = false;
@@ -89,11 +99,24 @@ function downloadBlob(blob,filename){
   const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
 }
 function getActiveProject(){ return workspace?.projects?.[workspace.active_project_id] || null; }
+function isAnalysisCurrency(value){return ANALYSIS_CURRENCIES.some(([code])=>code===value);}
+function normalizeAnalysisMaterialPrices(raw){
+  const normalized={};
+  for(const [key,value] of Object.entries(raw&&typeof raw==='object'?raw:{})){
+    const record=value&&typeof value==='object'?value:{};
+    const material=String(record.material??key).trim();
+    const price=Number(record.price_per_kg??record.price);
+    if(!material||!Number.isFinite(price)||price<0)continue;
+    normalized[material]={material,price_per_kg:price,currency:isAnalysisCurrency(record.currency)?record.currency:'USD'};
+  }
+  return normalized;
+}
 function makeProject(name='Sample Project',code='SAMPLE'){
   return {
     project_id:uuid(),project_name:name,project_code:code,
     inputs:clone(E.DEFAULT_INPUTS),tracker_quantities:E.defaultTrackerQuantities(),bearing_rules:{},manual_parts:E.defaultManualParts(),
     contingency_enabled:false,fastener_contingency_percent:0,bom_metadata_enabled:true,soltrk_version:'2.0',bom_overrides:{},equipment_quantity_overrides:{},
+    analysis_material_filter:'ALL',analysis_material_prices:{},
     selected_logic_pv:'',selected_sketch_pv:'',is_dirty:false,
   };
 }
@@ -104,7 +127,7 @@ function makeDefaultWorkspace(){
 function serializeWorkspace(){
   const projects={};
   for(const [id,p] of Object.entries(workspace.projects)){
-    projects[id]={project_id:p.project_id,project_name:p.project_name,project_code:p.project_code,inputs:clone(p.inputs),tracker_quantities:clone(p.tracker_quantities),bearing_rules:clone(p.bearing_rules),manual_parts:clone(p.manual_parts),contingency_enabled:p.contingency_enabled===true,fastener_contingency_percent:Math.min(100,Math.max(0,E.asNumber(p.fastener_contingency_percent,0))),bom_metadata_enabled:p.bom_metadata_enabled!==false,soltrk_version:E.normalizeSoltrkVersion(p.soltrk_version),bom_overrides:clone(p.bom_overrides||{}),equipment_quantity_overrides:clone(p.equipment_quantity_overrides||{}),selected_logic_pv:p.selected_logic_pv||'',selected_sketch_pv:p.selected_sketch_pv||''};
+    projects[id]={project_id:p.project_id,project_name:p.project_name,project_code:p.project_code,inputs:clone(p.inputs),tracker_quantities:clone(p.tracker_quantities),bearing_rules:clone(p.bearing_rules),manual_parts:clone(p.manual_parts),contingency_enabled:p.contingency_enabled===true,fastener_contingency_percent:Math.min(100,Math.max(0,E.asNumber(p.fastener_contingency_percent,0))),bom_metadata_enabled:p.bom_metadata_enabled!==false,soltrk_version:E.normalizeSoltrkVersion(p.soltrk_version),bom_overrides:clone(p.bom_overrides||{}),equipment_quantity_overrides:clone(p.equipment_quantity_overrides||{}),analysis_material_filter:p.analysis_material_filter||'ALL',analysis_material_prices:clone(p.analysis_material_prices||{}),selected_logic_pv:p.selected_logic_pv||'',selected_sketch_pv:p.selected_sketch_pv||''};
   }
   return {format_version:WORKSPACE_FORMAT_VERSION,workspace_name:workspace.workspace_name,active_project_id:workspace.active_project_id,projects,shared_part_master:{columns:[...partMasterColumns],rows:clone(partMaster),list_name:currentPartMasterListName},saved_at:formatDateTime(),application_version:APP_VERSION};
 }
@@ -118,6 +141,8 @@ function normalizeProject(raw,id){
   p.fastener_contingency_percent=Math.min(100,Math.max(0,E.asNumber(raw?.fastener_contingency_percent,0)));
   p.bom_metadata_enabled=raw?.bom_metadata_enabled!==false;
   p.soltrk_version=E.normalizeSoltrkVersion(raw?.soltrk_version);p.bom_overrides=clone(raw?.bom_overrides||{});p.equipment_quantity_overrides=clone(raw?.equipment_quantity_overrides||{});
+  p.analysis_material_filter=String(raw?.analysis_material_filter||'ALL');p.analysis_material_prices=normalizeAnalysisMaterialPrices(raw?.analysis_material_prices);
+  const legacyPrice=Number(raw?.analysis_price_per_kg);if(!Object.keys(p.analysis_material_prices).length&&p.analysis_material_filter!=='ALL'&&Number.isFinite(legacyPrice)&&legacyPrice>0)p.analysis_material_prices[p.analysis_material_filter]={material:p.analysis_material_filter,price_per_kg:legacyPrice,currency:isAnalysisCurrency(raw?.analysis_currency)?raw.analysis_currency:'USD'};
   p.selected_logic_pv=String(raw?.selected_logic_pv||'');p.selected_sketch_pv=String(raw?.selected_sketch_pv||'');p.is_dirty=false;
   return p;
 }
@@ -252,7 +277,7 @@ function selectProject(projectId){
 function resetCurrentProject(){
   const p=getActiveProject();if(!p)return;
   if(!confirm('Reset all inputs, tracker quantities, bearing rules, and manual parts for the current project?\n\nThis action cannot be undone after saving.'))return;
-  p.inputs=clone(E.DEFAULT_INPUTS);p.tracker_quantities=E.defaultTrackerQuantities();p.bearing_rules={};p.manual_parts=E.defaultManualParts();p.contingency_enabled=false;p.fastener_contingency_percent=0;p.bom_metadata_enabled=true;p.soltrk_version='2.0';p.bom_overrides={};p.equipment_quantity_overrides={};p.selected_logic_pv='';p.selected_sketch_pv='';p.is_dirty=true;selectedBomRows.clear();customRuleSelectedPv=null;uiState.customRule={pv:'14',mode:'Symmetrical',symmetrical_distance:'8320',semi_pair_count:3,asym_post_count:3,semi_pair_gaps:['8320','7350','6500','',''],asym_north_gaps:['8320','7350','6500','',''],asym_south_gaps:['8320','7350','6500','','']};renderAll(true);saveRecovery();
+  p.inputs=clone(E.DEFAULT_INPUTS);p.tracker_quantities=E.defaultTrackerQuantities();p.bearing_rules={};p.manual_parts=E.defaultManualParts();p.contingency_enabled=false;p.fastener_contingency_percent=0;p.bom_metadata_enabled=true;p.soltrk_version='2.0';p.bom_overrides={};p.equipment_quantity_overrides={};p.analysis_material_filter='ALL';p.analysis_material_prices={};p.selected_logic_pv='';p.selected_sketch_pv='';p.is_dirty=true;selectedBomRows.clear();customRuleSelectedPv=null;uiState.customRule={pv:'14',mode:'Symmetrical',symmetrical_distance:'8320',semi_pair_count:3,asym_post_count:3,semi_pair_gaps:['8320','7350','6500','',''],asym_north_gaps:['8320','7350','6500','',''],asym_south_gaps:['8320','7350','6500','','']};renderAll(true);saveRecovery();
 }
 function renderTabs(){
   const tabs=document.getElementById('tabs');if(tabs.children.length===0){
@@ -519,8 +544,12 @@ function buildLogicText(){
   if(E.cadBlocksAreAvailable(p))lines.push('CAD Blocks Availability = Yes. The app first checks whether this PV type has a custom bearing rule.','If yes, it uses the custom rule. If no, it uses the default CAD-block bearing rule.','');
   else lines.push('CAD Blocks Availability = No. The app estimates the span type from total tracker length.','Max tracker length = Span count × Max Span + 2 × Max Span × 0.35.','The selected span type defines the bearing post quantity: 2, 4, 6, or 8 bearing posts.','');
   lines.push('Each bearing post position is calculated from the mid-plane / main post.','Then the absolute position is compared with main beam zones.','','If |position| <= Zone A End, bearing type = Bearing 120','Else if |position| <= Zone B End, bearing type = Bearing 110','Else if |position| <= Zone C End, bearing type = Bearing 100','',`Zone A End = ${n(row['Zone A End (120)'])} mm`,`Zone B End = ${n(row['Zone B End (110)'])} mm`,`Zone C End = ${n(row['Main Beam C End from Midplane'])} mm`,'');
-  const first=d.motor_gap/2+(d.pv_module_width-d.pv_module_hole_distance)/2+d.z_rail_offset;
-  lines.push('4) MODULE SUPPORT PLATE K001099 CALCULATION','-'.repeat(90),'Rail positions are calculated from mid-plane on one side, then mirrored to the other side.','','First rail position:','Motor Gap / 2 + (PV Module Width - PV Module Transverse Hole Distance) / 2 + Z Rail Offset',`= ${n(d.motor_gap)} / 2 + (${n(d.pv_module_width)} - ${n(d.pv_module_hole_distance)}) / 2 + ${n(d.z_rail_offset)}`,`= ${n(first)} mm`,'','Second rail position increment:','PV Module Transverse Hole Distance + Hat Rail Hole Distance / 2 - Z Rail Offset','','Next rail increment:','PV Module Transverse Hole Distance + Hat Rail Hole Distance','','Support plate rules:','Base condition: each module rail has minimum 1 support plate.','Bearing 110: closest left/right rails get 2 plates.','Bearing 100: closest left/right rails get 4 plates.','Taper rule: 4 → 3 → 2 → 1, or 2 → 1.','Beam height compensation:','A/120 level = 0, B/110 level = 1, C/100 level = 2.','Corrected formula:','Final plates = max(1, taper plates + rail beam level - bearing beam level)','The bearing beam level is used as the reference, not the nearest rail beam level.','',`Module Support Plates / Side = ${n(row['Module Support Plates / Side'])}`,`Module Support Plates / Tracker = ${n(row['Module Support Plates / Tracker'])}`);
+  // Previous K001099 calculation log (kept for future restoration):
+  // const first=d.motor_gap/2+(d.pv_module_width-d.pv_module_hole_distance)/2+d.z_rail_offset;
+  // lines.push('4) MODULE SUPPORT PLATE K001099 CALCULATION','-'.repeat(90),'Rail positions are calculated from mid-plane on one side, then mirrored to the other side.','','First rail position:','Motor Gap / 2 + (PV Module Width - PV Module Transverse Hole Distance) / 2 + Z Rail Offset',`= ${n(d.motor_gap)} / 2 + (${n(d.pv_module_width)} - ${n(d.pv_module_hole_distance)}) / 2 + ${n(d.z_rail_offset)}`,`= ${n(first)} mm`,'','Second rail position increment:','PV Module Transverse Hole Distance + Hat Rail Hole Distance / 2 - Z Rail Offset','','Next rail increment:','PV Module Transverse Hole Distance + Hat Rail Hole Distance','','Support plate rules:','Base condition: each module rail has minimum 1 support plate.','Bearing 110: closest left/right rails get 2 plates.','Bearing 100: closest left/right rails get 4 plates.','Taper rule: 4 → 3 → 2 → 1, or 2 → 1.','Beam height compensation:','A/120 level = 0, B/110 level = 1, C/100 level = 2.','Corrected formula:','Final plates = max(1, taper plates + rail beam level - bearing beam level)','The bearing beam level is used as the reference, not the nearest rail beam level.','',`Module Support Plates / Side = ${n(row['Module Support Plates / Side'])}`,`Module Support Plates / Tracker = ${n(row['Module Support Plates / Tracker'])}`);
+  const hatRailQty=Math.max(E.asInt(row['PV Modules per Tracker'])-2,0);
+  const zRailQty=4;
+  lines.push('4) MODULE SUPPORT PLATE K001099 / PLUSS00173BZ00 CALCULATION','-'.repeat(90),'TEMPORARY CALCULATION NOTE:','PV Module Support Plate quantity is temporarily calculated as Hat rail + Z rail.','',`Hat rail / Tracker = ${n(hatRailQty)}`,`Z rail / Tracker = ${n(zRailQty)}`,`Module Support Plates / Tracker = ${n(hatRailQty)} + ${n(zRailQty)} = ${n(row['Module Support Plates / Tracker'])}`,`Module Support Plates / Side = ${n(row['Module Support Plates / Side'])}`);
   return lines.join('\n');
 }
 function renderLogic(){
@@ -565,6 +594,82 @@ function saveHighResSketch(){
   const p=getActiveProject(),pv=Number(p.selected_sketch_pv),row=current.schedule.find(r=>Number(r['PV Modules per Tracker'])===pv);if(!row)return;const svg=buildSketchSvg(row,1200,700),blob=new Blob([svg],{type:'image/svg+xml;charset=utf-8'}),url=URL.createObjectURL(blob),img=new Image();img.onload=()=>{const canvas=document.createElement('canvas');canvas.width=3600;canvas.height=2100;const ctx=canvas.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(img,0,0,canvas.width,canvas.height);URL.revokeObjectURL(url);canvas.toBlob(async png=>{const dpi=await addPng300Dpi(png);downloadBlob(dpi,`${safeFilename(p.project_code)}_${safeFilename(p.project_name)}_Tracker_Sketch_${pv}PV.png`);showToast('High-resolution tracker sketch saved.');},'image/png');};img.onerror=()=>{URL.revokeObjectURL(url);showToast('Could not generate the sketch image.');};img.src=url;
 }
 
+function formatAnalysisNumber(value,maxDigits=2){
+  const number=Number(value);if(!Number.isFinite(number))return '';
+  return number.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:maxDigits});
+}
+function formatAnalysisFixed(value,digits=2){
+  const number=Number(value);return (Number.isFinite(number)?number:0).toLocaleString('en-US',{minimumFractionDigits:digits,maximumFractionDigits:digits});
+}
+function buildSteelAnalysisData(){
+  const p=getActiveProject();
+  const priceRecords=normalizeAnalysisMaterialPrices(p?.analysis_material_prices);
+  const steelRows=(current?.bom?.rows||[]).filter(row=>E.normalizeText(row.Category).includes('steelstructure'));
+  const materials=[...new Set(steelRows.map(row=>String(row.Material??'').trim()).filter(material=>material&&material!=='-'))].sort((a,b)=>a.localeCompare(b));
+  const requestedMaterial=String(p?.analysis_material_filter||'ALL');
+  const selectedMaterial=requestedMaterial==='ALL'||materials.includes(requestedMaterial)?requestedMaterial:'ALL';
+  const mappedRows=steelRows.map(row=>{
+    const material=String(row.Material??'').trim();
+    const quantity=Math.max(0,E.asNumber(row['Total Qty'],0));
+    const rawWeight=row.Weight;
+    const unitWeight=rawWeight!==''&&rawWeight!==null&&rawWeight!==undefined&&Number.isFinite(Number(rawWeight))&&Number(rawWeight)>=0?Number(rawWeight):null;
+    const totalWeight=unitWeight===null?null:unitWeight*quantity;
+    const priceRecord=priceRecords[material]||null;
+    const calculatedCost=totalWeight!==null&&priceRecord?totalWeight*priceRecord.price_per_kg:null;
+    return {source:row,material,quantity,unitWeight,totalWeight,priceRecord,calculatedCost};
+  });
+  const filteredRows=selectedMaterial==='ALL'?mappedRows:mappedRows.filter(item=>item.material===selectedMaterial);
+  const sumWeight=rows=>rows.reduce((sum,item)=>sum+(item.totalWeight??0),0);
+  const materialWeights={};for(const item of mappedRows)if(item.material)materialWeights[item.material]=(materialWeights[item.material]||0)+(item.totalWeight??0);
+  const costByCurrency={};for(const item of filteredRows)if(item.calculatedCost!==null){const currency=item.priceRecord.currency;costByCurrency[currency]=(costByCurrency[currency]||0)+item.calculatedCost;}
+  const unpricedMaterials=[...new Set(filteredRows.filter(item=>item.totalWeight>0&&item.material&&!item.priceRecord).map(item=>item.material))].sort((a,b)=>a.localeCompare(b));
+  const tableRows=filteredRows.map(item=>({
+    'Part Name':item.source['Part Name']??item.source.Part??'',
+    'TAG':item.source.TAG??'',
+    'Material':item.material||'Not specified',
+    'Unit Weight (kg)':item.unitWeight===null?'Missing':formatAnalysisNumber(item.unitWeight,3),
+    'Total Qty':formatAnalysisNumber(item.quantity,3),
+    'Total Weight (kg)':item.totalWeight===null?'Not calculated':formatAnalysisNumber(item.totalWeight,2),
+    'Registered Price / kg':item.priceRecord?formatAnalysisNumber(item.priceRecord.price_per_kg,4):'Not registered',
+    'Currency':item.priceRecord?.currency||'',
+    'Calculated Cost':item.calculatedCost===null?'Not calculated':formatAnalysisFixed(item.calculatedCost,2),
+  }));
+  const registeredPriceRows=Object.values(priceRecords).sort((a,b)=>a.material.localeCompare(b.material)).map(record=>{
+    const weight=materialWeights[record.material]||0;
+    return {'Material':record.material,'Price / kg':formatAnalysisNumber(record.price_per_kg,4),'Currency':record.currency,'Current Weight (kg)':formatAnalysisNumber(weight,2),'Current Estimated Cost':`${formatAnalysisFixed(weight*record.price_per_kg,2)} ${record.currency}`};
+  });
+  const totalPowerKw=Math.max(0,E.asNumber(current?.kpis?.totalPower,0)*1000);
+  return {
+    materials,selectedMaterial,tableRows,priceRecords,registeredPriceRows,costByCurrency,unpricedMaterials,
+    totalSteelWeight:sumWeight(mappedRows),
+    filteredWeight:sumWeight(filteredRows),
+    missingWeightCount:filteredRows.filter(item=>item.quantity>0&&item.unitWeight===null).length,
+    kgPerKw:totalPowerKw>0?sumWeight(mappedRows)/totalPowerKw:0,
+  };
+}
+function renderAnalysis(){
+  const root=document.getElementById('tabAnalysis'),p=getActiveProject();if(!root||!p)return;
+  const data=buildSteelAnalysisData();
+  if(p.analysis_material_filter!==data.selectedMaterial)p.analysis_material_filter=data.selectedMaterial;
+  const filterLabel=data.selectedMaterial==='ALL'?'All materials':data.selectedMaterial;
+  const priceMaterials=[...new Set([...data.materials,...Object.keys(data.priceRecords)])].sort((a,b)=>a.localeCompare(b));
+  let editorMaterial=String(uiState.analysisPriceEditor[p.project_id]||'');if(!priceMaterials.includes(editorMaterial))editorMaterial='';
+  const editorRecord=data.priceRecords[editorMaterial]||null;
+  const totalCostEntries=Object.entries(data.costByCurrency).sort(([a],[b])=>a.localeCompare(b));
+  const totalCostHtml=totalCostEntries.length?totalCostEntries.map(([currency,cost])=>`<span>${formatAnalysisFixed(cost,2)} ${currency}</span>`).join(''):'<span>0.00</span>';
+  const selectedPrice=data.selectedMaterial==='ALL'?`${data.registeredPriceRows.length} material price(s) registered`:(data.priceRecords[data.selectedMaterial]?`${formatAnalysisNumber(data.priceRecords[data.selectedMaterial].price_per_kg,4)} ${data.priceRecords[data.selectedMaterial].currency} / kg`:'Not registered');
+  const warnings=[];if(data.missingWeightCount)warnings.push(`${data.missingWeightCount} filtered steel-structure item(s) have no valid unit weight and are excluded from weight and cost totals.`);if(data.unpricedMaterials.length)warnings.push(`No price registered for: ${data.unpricedMaterials.join(', ')}. These materials are excluded from cost totals.`);
+  const warningHtml=warnings.length?`<div class="analysis-warning">${warnings.map(message=>`<div>${escapeHtml(message)}</div>`).join('')}</div>`:'';
+  root.innerHTML=`<div class="analysis-title-row"><div><h2 class="table-title">Steel Structure Weight and Cost Analysis</h2><p class="table-subtitle">Weight is calculated from Project BOM steel-structure rows: Unit Weight × Total Qty.</p></div><div class="analysis-ratio"><span>kg / kW</span><strong>${formatAnalysisFixed(data.kgPerKw,2)} kg/kW</strong></div></div><div class="analysis-controls analysis-filter-controls"><label for="analysisMaterial">Filter steel structure by material<select id="analysisMaterial"><option value="ALL" ${data.selectedMaterial==='ALL'?'selected':''}>All materials</option>${data.materials.map(material=>`<option value="${escapeHtml(material)}" ${material===data.selectedMaterial?'selected':''}>${escapeHtml(material)}</option>`).join('')}</select></label></div><div class="analysis-summary"><div class="analysis-card"><span>Total Steel Structure Weight</span><strong>${formatAnalysisNumber(data.totalSteelWeight,2)} kg</strong></div><div class="analysis-card"><span>Filtered Weight — ${escapeHtml(filterLabel)}</span><strong>${formatAnalysisNumber(data.filteredWeight,2)} kg</strong></div><div class="analysis-card"><span>Registered Price</span><strong>${escapeHtml(selectedPrice)}</strong></div><div class="analysis-card analysis-cost-card"><span>Total Cost</span><strong class="analysis-cost-lines">${totalCostHtml}</strong></div></div>${warningHtml}<h2 class="table-title analysis-detail-title">Material Price Register</h2><p class="table-subtitle">Select a material to add a price. Select an existing registration to update or delete it.</p><div class="analysis-controls analysis-price-controls"><label for="analysisPriceMaterial">Material<select id="analysisPriceMaterial"><option value="">Select material</option>${priceMaterials.map(material=>`<option value="${escapeHtml(material)}" ${material===editorMaterial?'selected':''}>${escapeHtml(material)}</option>`).join('')}</select></label><label for="analysisPrice">Price / kg<input id="analysisPrice" type="number" min="0" step="any" value="${editorRecord?escapeHtml(editorRecord.price_per_kg):''}" placeholder="Enter price per kg"></label><label for="analysisCurrency">Currency<select id="analysisCurrency">${ANALYSIS_CURRENCIES.map(([code,label])=>`<option value="${code}" ${code===(editorRecord?.currency||'USD')?'selected':''}>${escapeHtml(label)}</option>`).join('')}</select></label><div class="analysis-price-actions"><button id="analysisPriceAdd" ${!editorMaterial||editorRecord?'disabled':''}>Add</button><button id="analysisPriceUpdate" ${!editorRecord?'disabled':''}>Update</button><button id="analysisPriceDelete" class="danger" ${!editorRecord?'disabled':''}>Delete</button></div></div><div id="analysisPriceRegistry">${makeArrayTable(['Material','Price / kg','Currency','Current Weight (kg)','Current Estimated Cost'],data.registeredPriceRows)}</div><h2 class="table-title analysis-detail-title">Filtered Steel Structure Details</h2>${makeArrayTable(['Part Name','TAG','Material','Unit Weight (kg)','Total Qty','Total Weight (kg)','Registered Price / kg','Currency','Calculated Cost'],data.tableRows)}`;
+  document.getElementById('analysisMaterial').addEventListener('change',e=>{p.analysis_material_filter=e.target.value;markDirty();renderAnalysis();requestAnimationFrame(updateFixedHorizontalScroll);});
+  document.getElementById('analysisPriceMaterial').addEventListener('change',e=>{uiState.analysisPriceEditor[p.project_id]=e.target.value;renderAnalysis();});
+  const readEditor=()=>{const material=document.getElementById('analysisPriceMaterial').value,rawPrice=document.getElementById('analysisPrice').value.trim(),price=Number(rawPrice),currency=document.getElementById('analysisCurrency').value;if(!material){showToast('Select a material first.');return null;}if(rawPrice===''||!Number.isFinite(price)||price<0){showToast('Enter a valid price per kg.');return null;}return {material,price_per_kg:price,currency:isAnalysisCurrency(currency)?currency:'USD'};};
+  document.getElementById('analysisPriceAdd').addEventListener('click',()=>{const record=readEditor();if(!record)return;if(p.analysis_material_prices[record.material]){showToast('This material already has a registered price. Use Update.');return;}p.analysis_material_prices[record.material]=record;markDirty();renderAnalysis();showToast(`Price added for ${record.material}.`);});
+  document.getElementById('analysisPriceUpdate').addEventListener('click',()=>{const record=readEditor();if(!record||!p.analysis_material_prices[record.material])return;p.analysis_material_prices[record.material]=record;markDirty();renderAnalysis();showToast(`Price updated for ${record.material}.`);});
+  document.getElementById('analysisPriceDelete').addEventListener('click',()=>{const material=document.getElementById('analysisPriceMaterial').value;if(!material||!p.analysis_material_prices[material])return;if(!confirm(`Delete the registered price for ${material}?`))return;delete p.analysis_material_prices[material];markDirty();renderAnalysis();showToast(`Price deleted for ${material}.`);});
+  root.querySelectorAll('#analysisPriceRegistry tbody tr').forEach((row,index)=>{const material=data.registeredPriceRows[index]?.Material;if(material===editorMaterial)row.classList.add('row-selected');row.addEventListener('click',()=>{uiState.analysisPriceEditor[p.project_id]=material;renderAnalysis();});});
+}
+
 function projectSummaryRows(p,calc){
   return [['Field','Value'],['Project Name',p.project_name],['Project Code',p.project_code],['Foundation Type',p.inputs.foundation_type],['CAD Blocks Availability',p.inputs.cad_blocks_available],['BOM Mode',E.getBomModeText(p)],['SOLTRK Version',`SOLTRK ${E.normalizeSoltrkVersion(p.soltrk_version)}`],['Max Span Length',p.inputs.max_span_length],['PV Module Power (Wp)',p.inputs.pv_power],['Export Date/Time',formatDateTime()],['Total Trackers',calc.kpis.totalTrackers],['Total PV Modules',calc.kpis.totalModules],['Plant Power (MWp)',Number(calc.kpis.totalPower.toFixed(3))],['BOM Line Items',calc.bom.rows.length]];
 }
@@ -587,7 +692,7 @@ function showChangelog(){
   const versions=Object.keys(CHANGELOG);const latest=versions[versions.length-1];const html=`<div class="modal-form-row"><label>Version:</label><select id="changelogVersion">${versions.map(v=>`<option ${v===latest?'selected':''}>${v}</option>`).join('')}</select></div><div id="changelogDate" style="margin-bottom:8px"></div><div id="changelogText" class="changelog-text"></div>`;openModal(`${APP_NAME} Changelog`,html,[{text:'Close',onClick:closeModal}]);const refresh=()=>{const v=document.getElementById('changelogVersion').value;document.getElementById('changelogDate').textContent=`Date: ${CHANGELOG_DATES[v]||''}`;document.getElementById('changelogText').textContent=`Version ${v}\n${'='.repeat(40)}\n\n${(CHANGELOG[v]||[]).map(x=>`• ${x}`).join('\n')}`;};document.getElementById('changelogVersion').addEventListener('change',refresh);refresh();
 }
 function renderOutputTabsExceptInputs(){
-  if(!current)return;renderArrayTable();renderSelectedArrays();renderBearingLayout();renderSupport();renderBom();renderPartMaster();renderSketch();renderLogic();renderBearingSummaryOnly();requestAnimationFrame(()=>requestAnimationFrame(updateFixedHorizontalScroll));
+  if(!current)return;renderArrayTable();renderSelectedArrays();renderBearingLayout();renderSupport();renderBom();renderPartMaster();renderSketch();renderAnalysis();renderLogic();renderBearingSummaryOnly();requestAnimationFrame(()=>requestAnimationFrame(updateFixedHorizontalScroll));
 }
 function refreshOutputsOnly(){
   recalculate();updateHeaderAndKpis();refreshProjectList();renderOutputTabsExceptInputs();saveRecovery();

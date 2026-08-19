@@ -1,4 +1,4 @@
-// Generated directly from LUMA_BOM_Manager V3.20 Part Master.
+// Generated directly from LUMA_BOM_Manager V3.30 Part Master.
 globalThis.INTERNAL_PART_MASTER_COLUMNS = ["Part", "TAG", "Description", "Part Number", "Category", "Unit"];
 globalThis.INTERNAL_PART_MASTER_RAW = [
   {
@@ -130,10 +130,18 @@ globalThis.INTERNAL_PART_MASTER_RAW = [
     "Unit": "pcs"
   },
   {
-    "Part": "SOLTRK Holder",
+    "Part": "SOLTRK 2.0 Holder",
     "TAG": "k001505",
-    "Description": "SOLTRK holder",
+    "Description": "SOLTRK 2.0 Holder",
     "Part Number": "PLUHS00330GZ00",
+    "Category": "Steel Structure",
+    "Unit": "pcs"
+  },
+  {
+    "Part": "SOLTRK 3.0 Holder",
+    "TAG": "k001568",
+    "Description": "SOLTRK 3.0 Holder",
+    "Part Number": "",
     "Category": "Steel Structure",
     "Unit": "pcs"
   },
@@ -202,9 +210,17 @@ globalThis.INTERNAL_PART_MASTER_RAW = [
     "Unit": "pcs"
   },
   {
-    "Part": "SOLTRK",
+    "Part": "SOLTRK 2.0",
     "TAG": "k001534",
-    "Description": "SOLTRK",
+    "Description": "SOLTRK 2.0",
+    "Part Number": "",
+    "Category": "Electrical",
+    "Unit": "pcs"
+  },
+  {
+    "Part": "SOLTRK 3.0",
+    "TAG": "k001549",
+    "Description": "SOLTRK 3.0",
     "Part Number": "",
     "Category": "Electrical",
     "Unit": "pcs"
@@ -508,7 +524,7 @@ globalThis.INTERNAL_PART_MASTER_RAW = [
   {
     "Part": "k001503",
     "TAG": "k001503",
-    "Description": "DIN 976-1 - M6 × 160",
+    "Description": "DIN 976-1 - M6 × 1000",
     "Part Number": "FBJ806G0G0A000",
     "Category": "Fasteners / SOLTRK Holder",
     "Unit": "pcs"

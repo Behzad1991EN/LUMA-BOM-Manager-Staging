@@ -93,10 +93,13 @@
     pv_power:'700',
     foundation_type:'Ramming',
     cad_blocks_available:'Yes',
-    max_span_length:'8500',
+    max_span_length:'7900',
     pv_module_width:'1134',
     pv_module_length:'2384',
     pv_module_hole_distance:'1093',
+    pv_module_longitudinal_hole_distance_1:'',
+    pv_module_longitudinal_hole_distance_2:'',
+    pv_module_longitudinal_hole_distance_3:'',
     hat_rail_hole_distance:'60',
     pv_gap_locked:true,
     pv_module_gap:'19',
@@ -185,7 +188,7 @@
   function cadBlocksAreAvailable(project){ return String(project.inputs?.cad_blocks_available ?? 'Yes').trim().toLowerCase() === 'yes'; }
   function getBomModeText(project){ return cadBlocksAreAvailable(project) ? 'CAD Block' : 'Estimation'; }
   function getSpanLimits(project){
-    const maxSpan = asNumber(project.inputs?.max_span_length,8500);
+    const maxSpan = asNumber(project.inputs?.max_span_length,7900);
     return Object.fromEntries([2,4,6,8].map(span=>[span,span*maxSpan + 2*maxSpan*0.35]));
   }
   function estimateSpanCountForLength(project,trackerLength){
@@ -211,7 +214,7 @@
     function sideGeometry(modulesOnSide){
       const gapsOnSide = Math.max(modulesOnSide-1,0);
       const requiredSide = d.motor_gap/2 + modulesOnSide*d.pv_module_width + gapsOnSide*d.pv_module_gap + d.target_end_gap;
-      // V3.11: C is not required when the required envelope ends within Beam B.
+      // V3.20: C is not required when the required envelope ends within Beam B.
       const mainCRequired = requiredSide <= zoneBEnd ? 0 : requiredSide - baseUntilC;
       let stock, stockLength;
       if(mainCRequired <= 0){ stock='Not required'; stockLength=0; }
@@ -226,7 +229,7 @@
     }
     const north = sideGeometry(northModules);
     const south = sideGeometry(southModules);
-    const trackerLength = north.end + south.end;
+    const trackerLength = cadBlocksAreAvailable(project) ? north.end + south.end : north.required + south.required;
     return {
       'Tracker Type':trackerType,
       'Tracker Symmetry':isOddTracker?'Asymmetrical':'Symmetrical',
@@ -255,7 +258,7 @@
       'Main Beam C Stock Length South':south.stock_length,
       'Main Beam C Actual End North from Midplane':north.main_c_actual_end,
       'Main Beam C Actual End South from Midplane':south.main_c_actual_end,
-      // These remain tracker-side physical ends, matching V3.11 bearing classification.
+      // These remain tracker-side physical ends, matching V3.20 bearing classification.
       'Main Beam C End from Midplane':Math.max(north.end,south.end),
       'Main Beam C End North from Midplane':north.end,
       'Main Beam C End South from Midplane':south.end,
@@ -303,7 +306,7 @@
         const northGap=asNumber(northGaps[index],0), southGap=asNumber(southGaps[index],0);
         northCumulative+=northGap; southCumulative+=southGap;
         const pair=index+1;
-        // V3.11 emits both sides even when a gap is 0.
+        // V3.20 emits both sides even when a gap is 0.
         rows.push({'Pair No.':pair,'Side':'North','Gap from Previous (mm)':northGap,'Distance from Main Post (mm)':northCumulative});
         rows.push({'Pair No.':pair,'Side':'South','Gap from Previous (mm)':southGap,'Distance from Main Post (mm)':-southCumulative});
       }
@@ -332,7 +335,7 @@
   }
   function calculateEstimatedBearingPositions(project,geometry){
     const trackerLength=asNumber(geometry['Tracker Length (mm)'],0);
-    const maxSpan=asNumber(project.inputs?.max_span_length,8500);
+    const maxSpan=asNumber(project.inputs?.max_span_length,7900);
     const spanCount=estimateSpanCountForLength(project,trackerLength);
     const pairsPerSide=Math.max(Math.trunc(spanCount/2),1);
     const spanType=`${spanCount}-Span`;
@@ -570,7 +573,63 @@
     return bestScore>0?best:null;
   }
 
-  // Exact V3.11 automatic BOM definitions, kept in the same order as bom_definitions.py.
+  // Steel Structure defaults. Fill only the Material and Weight values below.
+  const BOM_DEFAULT_METADATA = Object.freeze({
+    mainpost:Object.freeze({Material:'1.0045 (S355JR)',Weight:84.16}),
+    slewdriveseat:Object.freeze({Material:'1.0045 (S355JR)',Weight:'9.62'}),
+    bearingpost:Object.freeze({Material:'1.8902 (S420JR)',Weight:'25.26'}),
+    bearingadapter:Object.freeze({Material:'1.0045 (S355JR)',Weight:'5.39'}),
+    mainbeama:Object.freeze({Material:'1.8902 (S420GD)',Weight:'138.63'}),
+    mainbeamb:Object.freeze({Material:'1.8902 (S420GD)',Weight:''}),
+    mainbeamclong:Object.freeze({Material:'1.8902 (S420GD)',Weight:'122.4'}),
+    mainbeamcshort:Object.freeze({Material:'1.8902 (S420GD)',Weight:''}),
+    slewdriveconnection:Object.freeze({Material:'1.0529 (S350GD)',Weight:'7.1'}),
+    hatrail:Object.freeze({Material:'1.8902 (S420GD)',Weight:'2.19'}),
+    zrail:Object.freeze({Material:'1.8902 (S420GD)',Weight:'1.84'}),
+    modulerailfixingpart:Object.freeze({Material:'1.0529 (S350GD)',Weight:'0.19'}),
+    modulerailsupportplate:Object.freeze({Material:'1.0045 (S355JR)',Weight:'0.24'}),
+    modulerailelevationplate:Object.freeze({Material:'1.0038 (S235JR)',Weight:'0.23'}),
+    limitswitchholder:Object.freeze({Material:'DX51D',Weight:'0.55'}),
+    limitswitchtrigger:Object.freeze({Material:'DX51D',Weight:'0.36'}),
+    soltrkholder:Object.freeze({Material:'DX51D',Weight:'1.12'}),
+    junctionboxholder:Object.freeze({Material:'DX51D',Weight:'0.21'}),
+    anemometerholderplate:Object.freeze({Material:'DX51D',Weight:'0.22'}),
+  });
+  function bomRowKey(record){
+    const tag=normalizeText(record?.TAG);
+    if(tag) return `tag:${tag}`;
+    const part=normalizeText(record?.Part ?? record?.['Part Name']);
+    if(part) return `part:${part}`;
+    return `description:${normalizeText(record?.Description)}`;
+  }
+  function normalizeSoltrkVersion(value){ return String(value||'2.0').trim()==='3.0'?'3.0':'2.0'; }
+  function distributeEquipmentQuantities(project,rows,overrideKey,automaticFormula){
+    if(!rows.length) return {};
+    const automatic=rows.map(row=>Math.max(0,asInt(automaticFormula(row),0)));
+    const override=project?.equipment_quantity_overrides?.[overrideKey];
+    if(override===undefined || override===null || override==='') return Object.fromEntries(rows.map((row,index)=>[String(asInt(row['PV Modules per Tracker'])),automatic[index]]));
+    const total=Math.max(0,asInt(override,0));
+    let weights=[...automatic],weightTotal=weights.reduce((sum,value)=>sum+value,0);
+    if(weightTotal<=0){weights=rows.map(row=>Math.max(0,asInt(row['Number of Trackers'],0)));weightTotal=weights.reduce((sum,value)=>sum+value,0);}
+    if(weightTotal<=0){weights=rows.map(()=>1);weightTotal=weights.length;}
+    const raw=weights.map(weight=>weightTotal?total*weight/weightTotal:0);
+    const distributed=raw.map(Math.floor);
+    let remainder=total-distributed.reduce((sum,value)=>sum+value,0);
+    const order=raw.map((value,index)=>({index,fraction:value-distributed[index]})).sort((a,b)=>b.fraction-a.fraction||a.index-b.index);
+    for(let index=0;index<remainder;index++) distributed[order[index%order.length].index]++;
+    return Object.fromEntries(rows.map((row,index)=>[String(asInt(row['PV Modules per Tracker'])),distributed[index]]));
+  }
+  function contextEquipmentQty(context,key,row){ return asInt(context?.[`${key}ByPv`]?.[String(asInt(row['PV Modules per Tracker']))],0); }
+  function applyBomMetadata(row,calculatedItem,project){
+    const key=bomRowKey(row),override=project?.bom_overrides?.[key]||{};
+    const metadataDefaults=BOM_DEFAULT_METADATA[normalizeText(calculatedItem)]||BOM_DEFAULT_METADATA[normalizeText(row.Part??row['Part Name'])];
+    const defaults=recordIsFastener(row)?{Material:'-',Weight:'-'}:(metadataDefaults||{Material:'',Weight:''});
+    row.Material=Object.prototype.hasOwnProperty.call(override,'Material')?override.Material:defaults.Material;
+    row.Weight=Object.prototype.hasOwnProperty.call(override,'Weight')?override.Weight:defaults.Weight;
+    row._bom_key=key;
+  }
+
+  // V3.20 automatic BOM definitions, kept in the same order as bom_definitions.py.
   const BOM_DEFINITIONS = [
     ['Main Post',r=>asInt(r['Number of Trackers']),['main post','drive pile','hea 140'],'Structure / Posts','Total Trackers QTY'],
     ['Slew Drive Seat',r=>2*asInt(r['Number of Trackers']),['slew drive seat','slew seat'],'Drive / Slew','2 × Main Post'],
@@ -588,8 +647,8 @@
     ['Module Rail Elevation Plate',r=>2*asInt(r['Bearing 100 / Tracker'])*asInt(r['Number of Trackers']),['k001573','module elevation plate','elevation plate','module rail elevation plate'],'Module Rails / Support','2 × Bearing 100'],
     ['Limit Switch Holder',r=>asInt(r['Number of Trackers']),['limit switch holder'],'Steel Structure','Main Post'],
     ['Limit Switch Trigger',r=>asInt(r['Number of Trackers']),['limit switch trigger','limit switch frame'],'Steel Structure','Main Post'],
-    ['SOLTRK Holder',r=>ceilHalf(asInt(r['Number of Trackers'])),['soltrk holder','soltrk bracket'],'Steel Structure','ceil(Main Post / 2)'],
-    ['Junction Box Holder',r=>Math.floor(asInt(r['Number of Trackers'])/2),['k001511','junction box holder','junction holder','j-box holder'],'Steel Structure','floor(Tracker / 2) = Junction Box Qty'],
+    ['SOLTRK Holder',(r,c)=>contextEquipmentQty(c,'soltrk',r),['soltrk holder','soltrk bracket'],'Steel Structure','1 × SOLTRK'],
+    ['Junction Box Holder',(r,c)=>contextEquipmentQty(c,'junctionBox',r),['k001511','junction box holder','junction holder','j-box holder'],'Steel Structure','1 × Junction Box'],
     ['k001538 - Anemometer Bracket',r=>ceilUp(asInt(r['Number of Trackers'])/48),['k001538','anemometer bracket','anemometer holder plate'],'Steel Structure','ceil(Tracker / 48) per array type'],
     ['Bearing 120',r=>asInt(r['Bearing 120 / Tracker'])*asInt(r['Number of Trackers']),['bearing 120','gsqb 120','120 bearing'],'Drive / Bearing','Calculated from bearing post positions on 120 beam zone'],
     ['Bearing 110',r=>asInt(r['Bearing 110 / Tracker'])*asInt(r['Number of Trackers']),['bearing 110','gsqb 110','110 bearing'],'Drive / Bearing','Calculated from bearing post positions on 110 beam zone'],
@@ -597,8 +656,8 @@
     ['PV Module',r=>asInt(r['PV Modules per Tracker'])*asInt(r['Number of Trackers']),['pv module','solar module'],'PV Module','PV Modules per Tracker × Number of Trackers'],
     ['Slew Drive',r=>asInt(r['Number of Trackers']),['slewing drive','slew drive'],'Slew Drive','Main Post'],
     ['Limit Switch',r=>2*asInt(r['Number of Trackers']),['limit switch'],'Electrical','2 × Main Post'],
-    ['SOLTRK',r=>ceilHalf(asInt(r['Number of Trackers'])),['soltrk'],'Electrical','ceil(Main Post / 2)'],
-    ['Junction Box',r=>Math.floor(asInt(r['Number of Trackers'])/2),['junction box','j-box','junction'],'Electrical','floor(Tracker / 2)'],
+    ['SOLTRK',(r,c)=>contextEquipmentQty(c,'soltrk',r),['soltrk'],'Electrical','Editable total; automatic default is ceil(Main Post / 2)'],
+    ['Junction Box',(r,c)=>contextEquipmentQty(c,'junctionBox',r),['junction box','j-box','junction'],'Electrical','Editable total; automatic default is floor(Tracker / 2)'],
     ['k001390 - Cable gland pg13.5',r=>2*asInt(r['Number of Trackers']),['k001390','cable gland','pg13.5'],'Electrical','2 × Tracker'],
     ['k001405 - Safeguard-M48V-8-13_rev03',r=>ceilUp((1/48)*asInt(r['Number of Trackers'])),['k001405','safeguard','m48v'],'Electrical','ceil((1/48) × Tracker)'],
     ['k001406 - Safeguard-S48V-8-13_rev03',r=>ceilUp((1/48)*asInt(r['Number of Trackers'])),['k001406','safeguard','s48v'],'Electrical','ceil((1/48) × Tracker)'],
@@ -635,15 +694,15 @@
     ['k001235 - DIN 522 - 8.5 × 18 × 3 (M8)',r=>8*asInt(r['Number of Trackers']),['k001235','din 522','8.5','18','m8'],'Fasteners / Module Rails','2 × Z rail'],
     ['k001074 - DIN 982 ISO 7040 - M8',r=>2*(Math.max(asInt(r['PV Modules per Tracker'])-2,0)+4)*asInt(r['Number of Trackers']),['k001074','din 982','iso 7040','m8'],'Fasteners / Module Rails','2 × Rail'],
     ['k001575 - DIN 603 ISO 8677 - M8 × 150 - 50',r=>2*Math.max(asInt(r['PV Modules per Tracker'])-2,0)*asInt(r['Number of Trackers']),['k001575','din 603','iso 8677','m8'],'Fasteners / Hat Rails','2 × Hat Rail'],
-    ['k001503 - DIN 976-1 - M6 × 160',r=>2*asInt(r['Number of Trackers']),['k001503','din 976','m6','160'],'Fasteners / SOLTRK Holder','2 × Main Post'],
-    ['k001502 - DIN 9021 ISO 7093 - A6',r=>4*asInt(r['Number of Trackers']),['k001502','din 9021','iso 7093','a6'],'Fasteners / SOLTRK Holder','4 × Main Post'],
-    ['k001501 - DIN 986 - M6',r=>2*asInt(r['Number of Trackers']),['k001501','din 986','m6'],'Fasteners / SOLTRK Holder','2 × Main Post'],
-    ['k001504 - DIN 982 ISO 7040 - M6 - A2K',r=>2*asInt(r['Number of Trackers']),['k001504','din 982','iso 7040','m6','a2k'],'Fasteners / SOLTRK Holder','2 × Main Post'],
-    ['k001509 - DIN 9021 ISO 7093 - A 4.3 (M4)',r=>4*asInt(r['Number of Trackers'])+4*Math.floor(asInt(r['Number of Trackers'])/2),['k001509','din 9021','iso 7093','a4.3','m4'],'Fasteners / Junction Box + Limit Switch','4 × Tracker for Limit Switch + 4 × floor(Tracker / 2) for Junction Box'],
-    ['k001510 - DIN 912 ISO 4762 - M4 × 25',r=>ceilUp(2*asInt(r['Number of Trackers'])),['k001510','din 912','iso 4762','m4','25'],'Fasteners / SOLTRK + Limit Switch','ceil(2 × Tracker)'],
-    ['k001402 - DIN 982 ISO 7040 - M4',r=>6*asInt(r['Number of Trackers']),['k001402','din 982','iso 7040','m4'],'Fasteners / SOLTRK + Limit Switch','4 × SOLTRK + 2 × limit switch'],
-    ['k001454 - DIN 7985 ISO 7045 - M5 × 16',r=>4*Math.floor(asInt(r['Number of Trackers'])/2),['k001454','din 7985','iso 7045','m5','16'],'Fasteners / Junction Box','4 × floor(Tracker / 2) = 4 × Junction Box'],
-    ['k001513 - DIN 982 ISO 7040 - M5',r=>2*asInt(r['Number of Trackers'])+ceilUp((3/48)*asInt(r['Number of Trackers'])),['k001513','din 982','iso 7040','m5'],'Fasteners / SOLTRK Holder Plate + Anemometer','2 × Tracker + ceil((3/48) × Tracker), per array type'],
+    ['k001503 - DIN 976-1 - M6 × 160',(r,c)=>2*(contextEquipmentQty(c,'soltrk',r)+contextEquipmentQty(c,'junctionBox',r)),['k001503','din 976','m6','160'],'Fasteners / SOLTRK + Junction Box Holders','2 × (SOLTRK Holder + Junction Box Holder Plate)'],
+    ['k001502 - DIN 9021 ISO 7093 - A6',(r,c)=>4*(contextEquipmentQty(c,'soltrk',r)+contextEquipmentQty(c,'junctionBox',r)),['k001502','din 9021','iso 7093','a6'],'Fasteners / SOLTRK + Junction Box Holders','4 × (SOLTRK Holder + Junction Box Holder Plate)'],
+    ['k001501 - DIN 986 - M6',(r,c)=>2*(contextEquipmentQty(c,'soltrk',r)+contextEquipmentQty(c,'junctionBox',r)),['k001501','din 986','m6'],'Fasteners / SOLTRK + Junction Box Holders','2 × (SOLTRK Holder + Junction Box Holder Plate)'],
+    ['k001504 - DIN 982 ISO 7040 - M6 - A2K',(r,c)=>2*(contextEquipmentQty(c,'soltrk',r)+contextEquipmentQty(c,'junctionBox',r)),['k001504','din 982','iso 7040','m6','a2k'],'Fasteners / SOLTRK + Junction Box Holders','2 × (SOLTRK Holder + Junction Box Holder Plate)'],
+    ['k001509 - DIN 9021 ISO 7093 - A 4.3 (M4)',(r,c)=>(c.soltrkVersion==='2.0'?4*contextEquipmentQty(c,'soltrk',r):0)+4*asInt(r['Number of Trackers']),['k001509','din 9021','iso 7093','a4.3','m4'],'Fasteners / SOLTRK + Limit Switch','SOLTRK 2.0: 4 × SOLTRK; all versions: 2 × Limit Switch'],
+    ['k001510 - DIN 912 ISO 4762 - M4 × 25',(r,c)=>c.soltrkVersion==='2.0'?4*contextEquipmentQty(c,'soltrk',r):0,['k001510','din 912','iso 4762','m4','25'],'Fasteners / SOLTRK','SOLTRK 2.0 only: 4 × SOLTRK'],
+    ['k001402 - DIN 982 ISO 7040 - M4',(r,c)=>4*contextEquipmentQty(c,'soltrk',r)+4*asInt(r['Number of Trackers']),['k001402','din 982','iso 7040','m4'],'Fasteners / SOLTRK + Limit Switch','4 × SOLTRK + 2 × Limit Switch'],
+    ['k001454 - DIN 7985 ISO 7045 - M5 × 16',(r,c)=>4*contextEquipmentQty(c,'junctionBox',r)+(c.soltrkVersion==='3.0'?4*contextEquipmentQty(c,'soltrk',r):0),['k001454','din 7985','iso 7045','m5','16'],'Fasteners / Junction Box + SOLTRK 3.0','4 × Junction Box + (SOLTRK 3.0: 4 × SOLTRK)'],
+    ['k001513 - DIN 982 ISO 7040 - M5',(r,c)=>4*contextEquipmentQty(c,'junctionBox',r)+ceilUp((3/48)*asInt(r['Number of Trackers'])),['k001513','din 982','iso 7040','m5'],'Fasteners / Junction Box + Anemometer','4 × Junction Box + ceil((3/48) × Tracker) for Anemometer, per array type'],
     ['k001539 - DIN 7985 ISO 7045 - M5 × 20',r=>ceilUp((3/48)*asInt(r['Number of Trackers'])),['k001539','din 7985','iso 7045','m5','20'],'Fasteners / Anemometer','ceil((3/48) × Anemometer) per array type'],
     ['k001479 - Tube Spacer',r=>32*asInt(r['Number of Trackers']),['k001479','tube spacer','m12','16','12.7','13.3'],'Fastener','2 × k001388'],
   ];
@@ -651,18 +710,26 @@
   function buildProjectBom(project,activeSchedule,partMaster,partMasterColumns=PART_COLUMNS){
     const selectedRows=activeSchedule.filter(r=>asInt(r['Number of Trackers'])>0).slice().sort((a,b)=>asInt(b['PV Modules per Tracker'])-asInt(a['PV Modules per Tracker']));
     const qtyColumns=selectedRows.map(r=>`${asInt(r['PV Modules per Tracker'])}-PV Qty`);
-    const baseColumns=(partMasterColumns||PART_COLUMNS).filter(col=>!['note','notes'].includes(normalizeText(col)));
+    const baseColumns=(partMasterColumns||PART_COLUMNS).filter(col=>!['note','notes','material','weight'].includes(normalizeText(col)));
     const displayBaseColumns=baseColumns.map(col=>col==='Part'?'Part Name':col);
-    const columns=['No.',...displayBaseColumns,...qtyColumns,'Total Qty'];
+    const contingencyEnabled=project?.contingency_enabled===true;
+    const contingencyPercent=Math.min(100,Math.max(0,asNumber(project?.fastener_contingency_percent,0)));
+    const metadataEnabled=project?.bom_metadata_enabled!==false;
+    const columns=['No.',...displayBaseColumns,...(metadataEnabled?['Material','Weight']:[]),...qtyColumns,'Total Qty',...(contingencyEnabled?['Contingency (%)']:[])];
     const previewColumns=['No.',...displayBaseColumns,'Calculation Note'];
     const rows=[];
     const notesByTag={},notesByPart={};
+    const bomContext={
+      soltrkVersion:normalizeSoltrkVersion(project?.soltrk_version),
+      soltrkByPv:distributeEquipmentQuantities(project,selectedRows,'soltrk',row=>ceilHalf(asInt(row['Number of Trackers']))),
+      junctionBoxByPv:distributeEquipmentQuantities(project,selectedRows,'junction_box',row=>Math.floor(asInt(row['Number of Trackers'])/2)),
+    };
 
     for(const [calculatedItem,formula,keywords,categoryFallback,note,unit='pcs'] of BOM_DEFINITIONS){
       const quantitiesByPv={};
-      selectedRows.forEach(scheduleRow=>{ quantitiesByPv[asInt(scheduleRow['PV Modules per Tracker'])]=asNumber(formula(scheduleRow),0); });
+      selectedRows.forEach(scheduleRow=>{ quantitiesByPv[asInt(scheduleRow['PV Modules per Tracker'])]=asNumber(formula(scheduleRow,bomContext),0); });
       const match=findPartMasterMatch(partMaster,keywords,calculatedItem,categoryFallback);
-      if(!match) continue; // V3.11 authoritative Part Master.
+      if(!match) continue; // V3.20 authoritative Part Master.
       if(note){
         const tagKey=normalizeText(match.TAG),partKey=normalizeText(match.Part);
         if(tagKey) notesByTag[tagKey]=note;
@@ -672,7 +739,9 @@
         const calculatedPartKey=normalizeText(calculatedItem); if(calculatedPartKey && !notesByPart[calculatedPartKey]) notesByPart[calculatedPartKey]=note;
       }
       const totalQty=Object.values(quantitiesByPv).reduce((sum,v)=>sum+asNumber(v,0),0);
-      if(totalQty<=0) continue;
+      const normalizedCalculatedItem=normalizeText(calculatedItem);
+      const quantityOverrideKey=normalizedCalculatedItem==='soltrk'?'soltrk':(normalizedCalculatedItem==='junctionbox'?'junction_box':'');
+      if(totalQty<=0 && !quantityOverrideKey) continue;
       const row={};
       for(const column of baseColumns) row[column]=match[column] ?? '';
       if(Object.prototype.hasOwnProperty.call(row,'Part')) row['Part Name']=row.Part;
@@ -683,6 +752,8 @@
       });
       row['Total Qty']=niceNumber(totalQty);
       row['Calculation Note']=note;
+      applyBomMetadata(row,calculatedItem,project);
+      if(quantityOverrideKey) row._quantity_override_key=quantityOverrideKey;
       rows.push(row);
     }
 
@@ -702,11 +773,21 @@
       qtyColumns.forEach(column=>row[column]='');
       row['Total Qty']=niceNumber(qty);
       row['Calculation Note']='Manual standard part entered by user';
+      applyBomMetadata(row,itemName,project);
       rows.push(row);
     }
     rows.forEach((row,index)=>{
       row['No.']=index+1;
-      for(const column of columns){ if(row[column]===null||row[column]===undefined||row[column]==='') row[column]=0; }
+      if(contingencyEnabled){
+        const isFastener=recordIsFastener(row);
+        row['Contingency (%)']=isFastener?niceNumber(contingencyPercent):0;
+        if(isFastener && contingencyPercent>0){
+          const adjustedTotal=asNumber(row['Total Qty'],0)*(1+contingencyPercent/100);
+          const floatingPointTolerance=Number.EPSILON*Math.max(1,Math.abs(adjustedTotal))*4;
+          row['Total Qty']=Math.ceil(adjustedTotal-floatingPointTolerance);
+        }
+      }
+      for(const column of columns){ if(row[column]===null||row[column]===undefined||row[column]==='') row[column]=['Material','Weight'].includes(column)?'':0; }
     });
     return {columns,previewColumns,rows,notesByTag,notesByPart};
   }
@@ -735,12 +816,12 @@
   }
 
   global.LumaEngine={
-    PART_COLUMNS,DEFAULT_INPUTS,BOM_DEFINITIONS,
+    PART_COLUMNS,DEFAULT_INPUTS,BOM_DEFINITIONS,BOM_DEFAULT_METADATA,
     normalizeText,asNumber,asInt,niceNumber,firstNonEmpty,ceilHalf,ceilUp,
     fastenerPartNameFromDescription,loadInternalPartMaster,defaultTrackerQuantities,defaultManualParts,defaultBearingRule,normalizeBearingRule,
     getDesignInputs,calculateAutoPvModuleGap,cadBlocksAreAvailable,getBomModeText,getSpanLimits,estimateSpanCountForLength,
     calculateTrackerGeometry,getBearingRuleForPv,getPositionsFromRule,classifyBearing,classifyBeamZoneForPosition,calculateEstimatedBearingPositions,calculateBearingLayoutForTracker,
     generateModuleRailPositionsForSide,closestRailIndicesAroundPosition,calculateModuleSupportPlatesForTracker,buildSchedule,buildBearingLayoutTable,buildModuleSupportLayoutTable,
-    recordIsFastener,itemIsFastener,recordIsValidForCalculatedItem,findPartMasterMatch,buildProjectBom,buildPartMasterPreview,calculateProject,
+    recordIsFastener,itemIsFastener,recordIsValidForCalculatedItem,findPartMasterMatch,bomRowKey,normalizeSoltrkVersion,buildProjectBom,buildPartMasterPreview,calculateProject,
   };
 })(globalThis);

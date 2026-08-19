@@ -2,12 +2,14 @@
 
 const E = LumaEngine;
 const APP_NAME = 'LUMA BOM Manager';
-const APP_VERSION = 'Version 3.11';
-const APP_RELEASE_DATE = '27.07.2026';
+const APP_VERSION = 'Version 3.20';
+const APP_RELEASE_DATE = '18.08.2026';
 const APP_AUTHOR = 'Behzad Eydiyoon';
 const WORKSPACE_FORMAT_VERSION = '1.0';
-const RECOVERY_KEY = 'luma_bom_manager_v3_11_browser_recovery';
-const ACTIVE_TAB_KEY = 'luma_bom_manager_v3_11_active_tab';
+const RECOVERY_KEY = 'luma_bom_manager_v3_20_browser_recovery';
+const ACTIVE_TAB_KEY = 'luma_bom_manager_v3_20_active_tab';
+const LEGACY_RECOVERY_KEY = 'luma_bom_manager_v3_11_browser_recovery';
+const LEGACY_ACTIVE_TAB_KEY = 'luma_bom_manager_v3_11_active_tab';
 
 const TABS = [
   ['Inputs','tabInputs'],
@@ -42,9 +44,11 @@ const CHANGELOG = {
   '3.10': [
     'Major project-management, calculation, BOM, export, and user-interface update','Multi-project workspace support added','New Project, Duplicate Project, Rename Project, and Delete Project functions added','Project Code added for easier project identification and exported file naming','Save Workspace, Save As, Open Workspace, and New Workspace functions added','Unsaved-change indication and automatic workspace recovery added','Keyboard shortcuts added for common project and workspace actions','Project Search added to search projects by Project Name or Project Code','Export All/Selected Projects added with one separate Excel workbook per project','High-resolution Tracker Sketch export added at 3600 × 2100 pixels and 300 DPI','CAD Block and Estimation calculation modes improved','2-Span, 4-Span, 6-Span, and 8-Span automatic estimation improved','Bearing-position and bearing-type calculations improved','PV Module Support Plate calculations improved','Odd and asymmetrical tracker calculations improved with separate North and South side handling','Main Beam C calculation, quantity, stock selection, and drawing corrected','Main Beam C calculations for small trackers corrected','Custom bearing-rule locking removed so bearing-distance rules remain directly editable','Confirmation added before deleting a custom bearing-distance rule','Deleted custom bearing rules automatically return to the default bearing rule','PV Module Gap lock kept as an independent control','k001127 quantity updated to 22 × Tracker','Junction Box quantity changed to floor(Tracker / 2)','Junction Box Holder k001511 changed to floor(Tracker / 2)','k001454 changed to 4 × floor(Tracker / 2)','k001509 changed to 4 × Tracker + 4 × floor(Tracker / 2)','Anemometer-related BOM quantities and per-array rounding improved','Safeguard and SCADA-related BOM calculations and rounding improved','Related electrical and fastener BOM calculations improved','Calculation Note column restored in the Part Master tab','Calculation Notes remain visible even when the current part quantity is zero','Project BOM kept clean without Calculation Note columns','Sidebar layout improved and unnecessary descriptive text removed','Outer sidebar scrolling removed and fixed compact sidebar layout added','Active Project KPI display improved','Export controls changed to compact Active Project and All Projects buttons','Changelog button changed to the same compact half-width layout','Project Search box improved with a magnifying-glass indicator','Notebook tabs changed so selection is indicated by color only without changing tab size or position','Overall button spacing, sidebar organization, and application appearance improved'
   ],
-  '3.11': ['Added delete button to part master tab'],
+  '3.11': ['Added delete button to part master tab','Added optional fastener contingency percentage column to Project BOM'],
+  '3.20': ['Added optional Weight, Material and Contingency columns' , 'Added PV module longitudinal holes distance in input tab','Added a dropdown to select SOLTRK version','Modified the SOLTRK and Junction Box rows to allow manual editing.'
+  ],
 };
-const CHANGELOG_DATES = {'1.00':'26.05.2026','2.00':'08.06.2026','2.10':'16.06.2026','2.20':'17.06.2026','3.00':'08.07.2026','3.10':'22.07.2026','3.11':'27.07.2026'};
+const CHANGELOG_DATES = {'1.00':'26.05.2026','2.00':'08.06.2026','2.10':'16.06.2026','2.20':'17.06.2026','3.00':'08.07.2026','3.10':'22.07.2026','3.11':'27.07.2026','3.20':'18.08.2026'};
 
 let workspace = null;
 let current = null;
@@ -53,6 +57,7 @@ let partMasterColumns = [...INTERNAL_PART_MASTER_COLUMNS];
 let workspaceStructureDirty = false;
 let currentPartMasterListName = 'Default Internal';
 let selectedPartMasterRows = new Set();
+let selectedBomRows = new Set();
 let customRuleSelectedPv = null;
 let uiState = {
   customRule:{pv:'14',mode:'Symmetrical',symmetrical_distance:'8320',semi_pair_count:3,asym_post_count:3,semi_pair_gaps:['8320','7350','6500','',''],asym_north_gaps:['8320','7350','6500','',''],asym_south_gaps:['8320','7350','6500','','']},
@@ -88,6 +93,7 @@ function makeProject(name='Sample Project',code='SAMPLE'){
   return {
     project_id:uuid(),project_name:name,project_code:code,
     inputs:clone(E.DEFAULT_INPUTS),tracker_quantities:E.defaultTrackerQuantities(),bearing_rules:{},manual_parts:E.defaultManualParts(),
+    contingency_enabled:false,fastener_contingency_percent:0,bom_metadata_enabled:true,soltrk_version:'2.0',bom_overrides:{},equipment_quantity_overrides:{},
     selected_logic_pv:'',selected_sketch_pv:'',is_dirty:false,
   };
 }
@@ -98,7 +104,7 @@ function makeDefaultWorkspace(){
 function serializeWorkspace(){
   const projects={};
   for(const [id,p] of Object.entries(workspace.projects)){
-    projects[id]={project_id:p.project_id,project_name:p.project_name,project_code:p.project_code,inputs:clone(p.inputs),tracker_quantities:clone(p.tracker_quantities),bearing_rules:clone(p.bearing_rules),manual_parts:clone(p.manual_parts),selected_logic_pv:p.selected_logic_pv||'',selected_sketch_pv:p.selected_sketch_pv||''};
+    projects[id]={project_id:p.project_id,project_name:p.project_name,project_code:p.project_code,inputs:clone(p.inputs),tracker_quantities:clone(p.tracker_quantities),bearing_rules:clone(p.bearing_rules),manual_parts:clone(p.manual_parts),contingency_enabled:p.contingency_enabled===true,fastener_contingency_percent:Math.min(100,Math.max(0,E.asNumber(p.fastener_contingency_percent,0))),bom_metadata_enabled:p.bom_metadata_enabled!==false,soltrk_version:E.normalizeSoltrkVersion(p.soltrk_version),bom_overrides:clone(p.bom_overrides||{}),equipment_quantity_overrides:clone(p.equipment_quantity_overrides||{}),selected_logic_pv:p.selected_logic_pv||'',selected_sketch_pv:p.selected_sketch_pv||''};
   }
   return {format_version:WORKSPACE_FORMAT_VERSION,workspace_name:workspace.workspace_name,active_project_id:workspace.active_project_id,projects,shared_part_master:{columns:[...partMasterColumns],rows:clone(partMaster),list_name:currentPartMasterListName},saved_at:formatDateTime(),application_version:APP_VERSION};
 }
@@ -108,6 +114,10 @@ function normalizeProject(raw,id){
   p.inputs={...clone(E.DEFAULT_INPUTS),...(raw?.inputs||{})}; delete p.inputs.project_code;
   p.tracker_quantities={...E.defaultTrackerQuantities(),...(raw?.tracker_quantities||{})};
   p.bearing_rules=clone(raw?.bearing_rules||{});p.manual_parts=clone(raw?.manual_parts||E.defaultManualParts());
+  p.contingency_enabled=raw?.contingency_enabled===true;
+  p.fastener_contingency_percent=Math.min(100,Math.max(0,E.asNumber(raw?.fastener_contingency_percent,0)));
+  p.bom_metadata_enabled=raw?.bom_metadata_enabled!==false;
+  p.soltrk_version=E.normalizeSoltrkVersion(raw?.soltrk_version);p.bom_overrides=clone(raw?.bom_overrides||{});p.equipment_quantity_overrides=clone(raw?.equipment_quantity_overrides||{});
   p.selected_logic_pv=String(raw?.selected_logic_pv||'');p.selected_sketch_pv=String(raw?.selected_sketch_pv||'');p.is_dirty=false;
   return p;
 }
@@ -117,7 +127,7 @@ function loadWorkspacePayload(raw,recovery=false){
   let active=String(raw.active_project_id||'');if(!projects[active]) active=Object.keys(projects)[0];
   const shared=raw.shared_part_master||{};
   workspace={format_version:String(raw.format_version||WORKSPACE_FORMAT_VERSION),workspace_name:String(raw.workspace_name||'Untitled Workspace'),active_project_id:active,projects,shared_part_master:{columns:Array.isArray(shared.columns)&&shared.columns.length?[...shared.columns]:[...INTERNAL_PART_MASTER_COLUMNS],rows:Array.isArray(shared.rows)&&shared.rows.length?clone(shared.rows):E.loadInternalPartMaster(),list_name:String(shared.list_name||'Default Internal')}};
-  partMasterColumns=[...workspace.shared_part_master.columns];partMaster=clone(workspace.shared_part_master.rows);currentPartMasterListName=workspace.shared_part_master.list_name;workspaceStructureDirty=!!recovery;Object.values(workspace.projects).forEach(p=>p.is_dirty=!!recovery);selectedPartMasterRows.clear();
+  partMasterColumns=[...workspace.shared_part_master.columns];partMaster=clone(workspace.shared_part_master.rows);currentPartMasterListName=workspace.shared_part_master.list_name;workspaceStructureDirty=!!recovery;Object.values(workspace.projects).forEach(p=>p.is_dirty=!!recovery);selectedPartMasterRows.clear();selectedBomRows.clear();
   manualPartCounter=Math.max(2,...Object.keys(projects).flatMap(()=>[]));
   recalculate();renderAll(true);saveRecovery();
 }
@@ -191,7 +201,7 @@ function newWorkspace(){
         const name=document.getElementById('newWorkspaceProjectName').value.trim()||'Sample Project';
         const code=document.getElementById('newWorkspaceProjectCode').value.trim()||'PROJECT-001';
         const p=makeProject(name,code);workspace={format_version:WORKSPACE_FORMAT_VERSION,workspace_name:wsName,active_project_id:p.project_id,projects:{[p.project_id]:p},shared_part_master:{columns:[...INTERNAL_PART_MASTER_COLUMNS],rows:E.loadInternalPartMaster(),list_name:'Default Internal'}};
-        partMasterColumns=[...INTERNAL_PART_MASTER_COLUMNS];partMaster=E.loadInternalPartMaster();currentPartMasterListName='Default Internal';workspaceStructureDirty=true;selectedPartMasterRows.clear();customRuleSelectedPv=null;closeModal();renderAll(true);markDirty(true);
+        partMasterColumns=[...INTERNAL_PART_MASTER_COLUMNS];partMaster=E.loadInternalPartMaster();currentPartMasterListName='Default Internal';workspaceStructureDirty=true;selectedPartMasterRows.clear();selectedBomRows.clear();customRuleSelectedPv=null;closeModal();renderAll(true);markDirty(true);
       }}
     ]);
 }
@@ -216,13 +226,13 @@ function newProject(){
     {text:'Cancel',onClick:closeModal},{text:'Create',onClick:()=>{
       const name=document.getElementById('newProjectName').value.trim()||`Untitled Project ${n}`;const code=document.getElementById('newProjectCode').value.trim();
       if(!code){showToast('Project Code is required.');return;}if(projectCodeExists(code)){showToast('Project Code must be unique.');return;}
-      const p=makeProject(name,code);p.is_dirty=true;workspace.projects[p.project_id]=p;workspace.active_project_id=p.project_id;workspaceStructureDirty=true;document.getElementById('projectSearch').value='';closeModal();renderAll(true);saveRecovery();
+      const p=makeProject(name,code);p.is_dirty=true;workspace.projects[p.project_id]=p;workspace.active_project_id=p.project_id;workspaceStructureDirty=true;selectedBomRows.clear();document.getElementById('projectSearch').value='';closeModal();renderAll(true);saveRecovery();
     }}]);
 }
 function duplicateProject(){
   const source=getActiveProject();if(!source)return;
   let name=`${source.project_name} - Copy`;let base=`${source.project_code || 'PROJECT'}-COPY`;let code=base,n=2;while(projectCodeExists(code)){code=`${base}-${n++}`;}
-  const copy=clone(source);copy.project_id=uuid();copy.project_name=name;copy.project_code=code;copy.is_dirty=true;workspace.projects[copy.project_id]=copy;workspace.active_project_id=copy.project_id;workspaceStructureDirty=true;document.getElementById('projectSearch').value='';renderAll(true);saveRecovery();
+  const copy=clone(source);copy.project_id=uuid();copy.project_name=name;copy.project_code=code;copy.is_dirty=true;workspace.projects[copy.project_id]=copy;workspace.active_project_id=copy.project_id;workspaceStructureDirty=true;selectedBomRows.clear();document.getElementById('projectSearch').value='';renderAll(true);saveRecovery();
 }
 function renameProject(){
   const p=getActiveProject();if(!p)return;
@@ -233,22 +243,22 @@ function renameProject(){
 function deleteProject(){
   const ids=Object.keys(workspace.projects);if(ids.length<=1){showToast('The workspace must contain at least one project.');return;}
   const p=getActiveProject();if(!p)return;if(!confirm(`Delete project "${p.project_name}"?\n\nThis action cannot be undone after saving.`))return;
-  delete workspace.projects[p.project_id];workspace.active_project_id=Object.keys(workspace.projects)[0];workspaceStructureDirty=true;document.getElementById('projectSearch').value='';renderAll(true);saveRecovery();
+  delete workspace.projects[p.project_id];workspace.active_project_id=Object.keys(workspace.projects)[0];workspaceStructureDirty=true;selectedBomRows.clear();document.getElementById('projectSearch').value='';renderAll(true);saveRecovery();
 }
 function selectProject(projectId){
-  if(!workspace.projects[projectId])return;workspace.active_project_id=projectId;selectedPartMasterRows.clear();customRuleSelectedPv=null;
+  if(!workspace.projects[projectId])return;workspace.active_project_id=projectId;selectedPartMasterRows.clear();selectedBomRows.clear();customRuleSelectedPv=null;
   const q=document.getElementById('projectSearch').value.trim().toLowerCase();const p=getActiveProject();if(q&&!`${p.project_code} ${p.project_name}`.toLowerCase().includes(q))document.getElementById('projectSearch').value='';renderAll(true);saveRecovery();
 }
 function resetCurrentProject(){
   const p=getActiveProject();if(!p)return;
   if(!confirm('Reset all inputs, tracker quantities, bearing rules, and manual parts for the current project?\n\nThis action cannot be undone after saving.'))return;
-  p.inputs=clone(E.DEFAULT_INPUTS);p.tracker_quantities=E.defaultTrackerQuantities();p.bearing_rules={};p.manual_parts=E.defaultManualParts();p.selected_logic_pv='';p.selected_sketch_pv='';p.is_dirty=true;customRuleSelectedPv=null;uiState.customRule={pv:'14',mode:'Symmetrical',symmetrical_distance:'8320',semi_pair_count:3,asym_post_count:3,semi_pair_gaps:['8320','7350','6500','',''],asym_north_gaps:['8320','7350','6500','',''],asym_south_gaps:['8320','7350','6500','','']};renderAll(true);saveRecovery();
+  p.inputs=clone(E.DEFAULT_INPUTS);p.tracker_quantities=E.defaultTrackerQuantities();p.bearing_rules={};p.manual_parts=E.defaultManualParts();p.contingency_enabled=false;p.fastener_contingency_percent=0;p.bom_metadata_enabled=true;p.soltrk_version='2.0';p.bom_overrides={};p.equipment_quantity_overrides={};p.selected_logic_pv='';p.selected_sketch_pv='';p.is_dirty=true;selectedBomRows.clear();customRuleSelectedPv=null;uiState.customRule={pv:'14',mode:'Symmetrical',symmetrical_distance:'8320',semi_pair_count:3,asym_post_count:3,semi_pair_gaps:['8320','7350','6500','',''],asym_north_gaps:['8320','7350','6500','',''],asym_south_gaps:['8320','7350','6500','','']};renderAll(true);saveRecovery();
 }
 function renderTabs(){
   const tabs=document.getElementById('tabs');if(tabs.children.length===0){
     for(const [label,id] of TABS){const b=document.createElement('button');b.textContent=label;b.dataset.target=id;b.addEventListener('click',()=>activateTab(id));tabs.appendChild(b);}
   }
-  let active=storageGet(ACTIVE_TAB_KEY)||'tabInputs';if(!TABS.some(([,id])=>id===active))active='tabInputs';activateTab(active,false);
+  let active=storageGet(ACTIVE_TAB_KEY)||storageGet(LEGACY_ACTIVE_TAB_KEY)||'tabInputs';if(!TABS.some(([,id])=>id===active))active='tabInputs';activateTab(active,false);
 }
 function activateTab(id,store=true){
   document.querySelectorAll('.tab-page').forEach(p=>p.classList.toggle('active',p.id===id));
@@ -259,6 +269,10 @@ function activateTab(id,store=true){
 function inputRow(label,key,value,extra=''){
   return `<div class="form-row"><label for="input_${key}">${escapeHtml(label)}</label><input id="input_${key}" data-input-key="${key}" value="${escapeHtml(value)}" ${extra}><span></span></div>`;
 }
+function tripleInputRow(label,keys,values){
+  const placeholders=['400','790','1400'];
+  return `<div class="form-row"><label for="input_${keys[0]}">${escapeHtml(label)}</label><div class="triple-input-row">${keys.map((key,index)=>`<input id="input_${key}" data-input-key="${key}" data-max-digits="4" inputmode="numeric" maxlength="4" placeholder="${placeholders[index]}" aria-label="${escapeHtml(label)} ${index+1}" value="${escapeHtml(values[index]??'')}">`).join('')}</div><span></span></div>`;
+}
 function selectRow(label,key,value,options){
   return `<div class="form-row"><label for="input_${key}">${escapeHtml(label)}</label><select id="input_${key}" data-input-key="${key}">${options.map(o=>`<option ${String(o)===String(value)?'selected':''}>${escapeHtml(o)}</option>`).join('')}</select><span></span></div>`;
 }
@@ -266,6 +280,7 @@ function bindStandardInputs(container){
   container.querySelectorAll('[data-input-key]').forEach(el=>{
     const event=el.tagName==='SELECT'?'change':'input';el.addEventListener(event,()=>{
       const p=getActiveProject();const key=el.dataset.inputKey;if(key.startsWith('__'))return;p.inputs[key]=el.value;
+      if(el.dataset.maxDigits){el.value=el.value.replace(/\D/g,'').slice(0,Number(el.dataset.maxDigits));p.inputs[key]=el.value;}
       if(['pv_module_width','pv_module_hole_distance','hat_rail_hole_distance'].includes(key) && p.inputs.pv_gap_locked){p.inputs.pv_module_gap=String(E.niceNumber(E.calculateAutoPvModuleGap(p)));const gap=document.getElementById('input_pv_module_gap');if(gap)gap.value=p.inputs.pv_module_gap;}
       markDirty();refreshOutputsOnly();
     });
@@ -287,10 +302,11 @@ function renderInputsTab(){
     <div class="input-section"><h2 class="section-title">PV Module Inputs</h2>
       ${inputRow('PV Module Width (mm)','pv_module_width',i.pv_module_width)}
       ${inputRow('PV Module Length (mm)','pv_module_length',i.pv_module_length)}
-      ${inputRow('PV Module Hole Distance (mm)','pv_module_hole_distance',i.pv_module_hole_distance)}
+      ${inputRow('PV Module Transverse Hole Distance (mm)','pv_module_hole_distance',i.pv_module_hole_distance)}
+      ${tripleInputRow('PV Module Longitudinal Hole Distance (mm)',['pv_module_longitudinal_hole_distance_1','pv_module_longitudinal_hole_distance_2','pv_module_longitudinal_hole_distance_3'],[i.pv_module_longitudinal_hole_distance_1,i.pv_module_longitudinal_hole_distance_2,i.pv_module_longitudinal_hole_distance_3])}
       ${inputRow('Hat Rail Hole Distance (mm)','hat_rail_hole_distance',i.hat_rail_hole_distance)}
       ${inputRow('Z Rail Design Offset (mm)','z_rail_offset',i.z_rail_offset)}
-      <div class="form-row"><label for="input_pv_module_gap">PV Module Gap (mm)</label><div class="lock-row"><input id="input_pv_module_gap" value="${escapeHtml(i.pv_module_gap)}" ${i.pv_gap_locked?'readonly':''}><button id="pvGapLock" class="lock-switch ${i.pv_gap_locked?'':'unlocked'}" title="Locked mode: PV Module Gap = PV Module Hole Distance + Hat Rail Hole Distance - PV Module Width"><span>${i.pv_gap_locked?'LOCK':'UNLOCK'}</span></button></div><span></span></div>
+      <div class="form-row"><label for="input_pv_module_gap">PV Module Gap (mm)</label><div class="lock-row"><input id="input_pv_module_gap" value="${escapeHtml(i.pv_module_gap)}" ${i.pv_gap_locked?'readonly':''}><button id="pvGapLock" class="lock-switch ${i.pv_gap_locked?'':'unlocked'}" title="Locked mode: PV Module Gap = PV Module Transverse Hole Distance + Hat Rail Hole Distance - PV Module Width"><span>${i.pv_gap_locked?'LOCK':'UNLOCK'}</span></button></div><span></span></div>
       ${inputRow('Motor Gap (mm)','motor_gap',i.motor_gap)}
       ${inputRow('Target End Gap (mm)','target_end_gap',i.target_end_gap)}
     </div>
@@ -387,7 +403,7 @@ function renderBearingSummaryOnly(){
     root.querySelectorAll('tbody tr[data-row-index]').forEach(tr=>tr.addEventListener('dblclick',()=>{const row=rows[Number(tr.dataset.rowIndex)];customRuleSelectedPv=Number(String(row[0]).replace('-PV',''));syncCustomRuleFromProject(customRuleSelectedPv);renderBearingConfig();}));
     if(customRuleSelectedPv!=null){[...root.querySelectorAll('tbody tr')].forEach(tr=>{if(tr.cells[0]?.textContent===`${customRuleSelectedPv}-PV`)tr.classList.add('row-selected');});}
   }else{
-    const rows=current.schedule.map(row=>[`${row['PV Modules per Tracker']}-PV`,'Symmetrical',E.niceNumber(E.asNumber(p.inputs.max_span_length,8500)),E.niceNumber(row['Tracker Length (mm)']),row['Span Type'],row['Bearing Posts / Tracker']]);
+    const rows=current.schedule.map(row=>[`${row['PV Modules per Tracker']}-PV`,'Symmetrical',E.niceNumber(E.asNumber(p.inputs.max_span_length,7900)),E.niceNumber(row['Tracker Length (mm)']),row['Span Type'],row['Bearing Posts / Tracker']]);
     root.innerHTML=makeArrayTable(['Array Type','Mode','Max Span Length (mm)','Tracker Length (mm)','Tracker Type','Bearing Posts'],rows,{rawArrays:true});
   }
 }
@@ -440,9 +456,30 @@ function rowMatchesSearch(row,text){
   const words=String(text||'').trim().split(/\s+/).map(E.normalizeText).filter(Boolean);if(!words.length)return true;const combined=E.normalizeText(Object.values(row||{}).filter(v=>v!==null&&v!==undefined).join(' '));return words.every(w=>combined.includes(w));
 }
 function renderBom(){
-  const root=document.getElementById('tabBom');const filtered=current.bom.rows.filter(r=>rowMatchesSearch(r,uiState.projectBomSearch));
-  root.innerHTML=`<div class="search-row"><label>Search:</label><input id="bomSearchInput" value="${escapeHtml(uiState.projectBomSearch)}" placeholder="Search Project BOM by Part, TAG, Description, Category, quantity..."><button id="bomSearchBtn">Search</button><button id="bomClearBtn">Clear</button></div>${makeArrayTable(current.bom.columns,filtered)}`;
+  const root=document.getElementById('tabBom'),p=getActiveProject();const filtered=current.bom.rows.filter(r=>rowMatchesSearch(r,uiState.projectBomSearch));
+  const contingencyPercent=Math.min(100,Math.max(0,E.asNumber(p.fastener_contingency_percent,0)));
+  const soltrkVersion=E.normalizeSoltrkVersion(p.soltrk_version);
+  root.innerHTML=`<div class="bom-controls"><label class="bom-contingency-toggle"><input id="bomContingencyEnabled" type="checkbox" ${p.contingency_enabled?'checked':''}> Contingency</label><label class="bom-contingency-percent" for="bomContingencyPercent">Fasteners (%) <input id="bomContingencyPercent" type="number" min="0" max="100" step="0.1" value="${escapeHtml(E.niceNumber(contingencyPercent))}" ${p.contingency_enabled?'':'disabled'}></label><label><input id="bomMetadataEnabled" type="checkbox" ${p.bom_metadata_enabled!==false?'checked':''}> Material / Weight</label><label for="bomSoltrkVersion">SOLTRK Version <select id="bomSoltrkVersion">${['2.0','3.0'].map(version=>`<option value="${version}" ${version===soltrkVersion?'selected':''}>SOLTRK ${version}</option>`).join('')}</select></label></div><div class="search-row"><label>Search:</label><input id="bomSearchInput" value="${escapeHtml(uiState.projectBomSearch)}" placeholder="Search Project BOM by Part, TAG, Description, Category, quantity..."><button id="bomSearchBtn">Search</button><button id="bomClearBtn">Clear</button></div>${makeArrayTable(current.bom.columns,filtered)}`;
+  document.getElementById('bomContingencyEnabled').addEventListener('change',e=>{p.contingency_enabled=e.target.checked;markDirty();refreshOutputsOnly();});
+  document.getElementById('bomContingencyPercent').addEventListener('change',e=>{const value=Math.min(100,Math.max(0,E.asNumber(e.target.value,0)));p.fastener_contingency_percent=value;markDirty();refreshOutputsOnly();});
+  document.getElementById('bomMetadataEnabled').addEventListener('change',e=>{p.bom_metadata_enabled=e.target.checked;markDirty();refreshOutputsOnly();});
+  document.getElementById('bomSoltrkVersion').addEventListener('change',e=>{p.soltrk_version=E.normalizeSoltrkVersion(e.target.value);markDirty();refreshOutputsOnly();});
+  root.querySelectorAll('tbody tr').forEach((tr,displayIndex)=>{
+    const row=filtered[displayIndex],key=row._bom_key;
+    if(selectedBomRows.has(key))tr.classList.add('row-selected');
+    tr.addEventListener('click',e=>{if(e.detail>1)return;if(e.ctrlKey||e.metaKey){selectedBomRows.has(key)?selectedBomRows.delete(key):selectedBomRows.add(key);}else{selectedBomRows.clear();selectedBomRows.add(key);}root.querySelectorAll('tbody tr').forEach((tableRow,index)=>tableRow.classList.toggle('row-selected',selectedBomRows.has(filtered[index]._bom_key)));});
+    tr.querySelectorAll('td').forEach((td,columnIndex)=>{
+      const column=current.bom.columns[columnIndex],editableMetadata=column==='Material'||column==='Weight',editableQuantity=column==='Total Qty'&&!!row._quantity_override_key;
+      if(editableMetadata||editableQuantity){td.classList.add('bom-editable-cell');td.title=editableQuantity?'Double-click to set the manual total; clear the value to restore automatic quantity.':'Double-click to edit.';td.addEventListener('dblclick',e=>{e.stopPropagation();editBomCell(td,row,column);});}
+    });
+  });
   const search=()=>{uiState.projectBomSearch=document.getElementById('bomSearchInput').value;renderBom();updateFixedHorizontalScroll();};document.getElementById('bomSearchBtn').addEventListener('click',search);document.getElementById('bomSearchInput').addEventListener('keydown',e=>{if(e.key==='Enter')search();});document.getElementById('bomClearBtn').addEventListener('click',()=>{uiState.projectBomSearch='';renderBom();updateFixedHorizontalScroll();});
+}
+function editBomCell(td,row,column){
+  if(td.querySelector('input'))return;const p=getActiveProject(),isQuantity=column==='Total Qty';const old=isQuantity?row['Total Qty']:(row[column]??'');
+  td.innerHTML=`<input class="bom-cell-input" ${isQuantity?'type="number" min="0" step="1"':''} value="${escapeHtml(old)}">`;const input=td.querySelector('input');input.focus();input.select();let done=false;
+  const save=()=>{if(done)return;done=true;if(isQuantity){const key=row._quantity_override_key,value=input.value.trim();p.equipment_quantity_overrides=p.equipment_quantity_overrides||{};if(value==='')delete p.equipment_quantity_overrides[key];else p.equipment_quantity_overrides[key]=Math.max(0,Math.trunc(E.asNumber(value,0)));}else{p.bom_overrides=p.bom_overrides||{};p.bom_overrides[row._bom_key]=p.bom_overrides[row._bom_key]||{};p.bom_overrides[row._bom_key][column]=input.value;}markDirty();refreshOutputsOnly();};
+  input.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();save();}else if(e.key==='Escape'){done=true;renderBom();}});input.addEventListener('blur',save);
 }
 function renderPartMaster(){
   const root=document.getElementById('tabPartMaster');const filtered=current.partMasterPreview.filter(r=>rowMatchesSearch(r,uiState.partMasterSearch));
@@ -474,14 +511,16 @@ function buildLogicText(){
   ensureLogicSelection();const p=getActiveProject(),pv=Number(p.selected_logic_pv);const row=current.schedule.find(r=>Number(r['PV Modules per Tracker'])===pv);if(!row)return 'No calculation available.';
   const d=E.getDesignInputs(p),bearingRule=E.getBearingRuleForPv(p,pv),n=E.niceNumber;const lines=[];
   lines.push('CALCULATION LOGIC','='.repeat(90),'',`Selected PV Modules / Tracker = ${pv}`,`Tracker Type = ${row['Tracker Type']}`,`Bearing Rule Source = ${row['Bearing Rule Source']}`,`Bearing Rule Mode = ${bearingRule.mode||''}`,`BOM Mode = ${E.getBomModeText(p)}`,`Span Type = ${row['Span Type']||'CAD Block'}`,'');
-  lines.push('1) PV MODULE GAP CALCULATION','-'.repeat(90),'PV Module Gap = PV Module Hole Distance + Hat Rail Hole Distance - PV Module Width',`= ${n(d.pv_module_hole_distance)} + ${n(d.hat_rail_hole_distance)} - ${n(d.pv_module_width)}`,`= ${n(d.pv_module_gap)} mm`,`Gap locked = ${p.inputs.pv_gap_locked?'Yes':'No'}`,'');
-  lines.push('2) TRACKER LENGTH CALCULATION','-'.repeat(90),'For even PV arrays, the tracker mid-plane is X = 0.','','Modules per side = PV count / 2',`Modules per side = ${pv} / 2 = ${n(row['Modules / Side'])}`,'','PV gaps per side = Modules per side - 1',`PV gaps per side = ${n(row['Modules / Side'])} - 1 = ${n(row['PV Gaps / Side'])}`,'','Required right-side envelope =','Motor Gap / 2 + Modules per side × PV Module Width + PV gaps per side × PV Module Gap + Target End Gap',`= ${n(d.motor_gap)} / 2 + ${n(row['Modules / Side'])} × ${n(d.pv_module_width)} + ${n(row['PV Gaps / Side'])} × ${n(d.pv_module_gap)} + ${n(d.target_end_gap)}`,`= ${n(row['Required Right Side'])} mm`,'','Base until Main Beam C =','Mid plane to start + First piece length - Overlap A/B + Main Beam B - Overlap B/C',`= ${n(d.mid_plane_to_beam_a)} + ${n(row['First Piece Length'])} - ${n(d.overlap_ab)} + ${n(d.main_beam_b_length)} - ${n(d.overlap_bc)}`,`= ${n(row['Base Until C'])} mm`,'','Main Beam C required length = Required right-side envelope - Base until Main Beam C',`= ${n(row['Required Right Side'])} - ${n(row['Base Until C'])}`,`= ${n(row['Main Beam C Required Length'])} mm`,'','Total tracker length = 2 × Right-side tracker end',`= 2 × ${n(row['Main Beam C End from Midplane'])}`,`= ${n(row['Tracker Length (mm)'])} mm`,'');
+  lines.push('1) PV MODULE GAP CALCULATION','-'.repeat(90),'PV Module Gap = PV Module Transverse Hole Distance + Hat Rail Hole Distance - PV Module Width',`= ${n(d.pv_module_hole_distance)} + ${n(d.hat_rail_hole_distance)} - ${n(d.pv_module_width)}`,`= ${n(d.pv_module_gap)} mm`,`Gap locked = ${p.inputs.pv_gap_locked?'Yes':'No'}`,'');
+  lines.push('2) TRACKER LENGTH CALCULATION','-'.repeat(90),'Required side envelope = Motor Gap / 2 + Modules × PV Module Width + PV gaps × PV Module Gap + Target End Gap',`Required North Side = ${n(row['Required North Side'])} mm`,`Required South Side = ${n(row['Required South Side'])} mm`, '');
+  if(E.cadBlocksAreAvailable(p))lines.push('CAD Block tracker length = North structural end + South structural end',`= ${n(row['Main Beam C End North from Midplane'])} + ${n(row['Main Beam C End South from Midplane'])}`,`= ${n(row['Tracker Length (mm)'])} mm`,'');
+  else lines.push('Estimation tracker length = Required North Side + Required South Side',`= ${n(row['Required North Side'])} + ${n(row['Required South Side'])}`,`= ${n(row['Tracker Length (mm)'])} mm`,'');
   lines.push('3) BEARING TYPE CALCULATION','-'.repeat(90));
   if(E.cadBlocksAreAvailable(p))lines.push('CAD Blocks Availability = Yes. The app first checks whether this PV type has a custom bearing rule.','If yes, it uses the custom rule. If no, it uses the default CAD-block bearing rule.','');
   else lines.push('CAD Blocks Availability = No. The app estimates the span type from total tracker length.','Max tracker length = Span count × Max Span + 2 × Max Span × 0.35.','The selected span type defines the bearing post quantity: 2, 4, 6, or 8 bearing posts.','');
   lines.push('Each bearing post position is calculated from the mid-plane / main post.','Then the absolute position is compared with main beam zones.','','If |position| <= Zone A End, bearing type = Bearing 120','Else if |position| <= Zone B End, bearing type = Bearing 110','Else if |position| <= Zone C End, bearing type = Bearing 100','',`Zone A End = ${n(row['Zone A End (120)'])} mm`,`Zone B End = ${n(row['Zone B End (110)'])} mm`,`Zone C End = ${n(row['Main Beam C End from Midplane'])} mm`,'');
   const first=d.motor_gap/2+(d.pv_module_width-d.pv_module_hole_distance)/2+d.z_rail_offset;
-  lines.push('4) MODULE SUPPORT PLATE K001099 CALCULATION','-'.repeat(90),'Rail positions are calculated from mid-plane on one side, then mirrored to the other side.','','First rail position:','Motor Gap / 2 + (PV Module Width - PV Module Hole Distance) / 2 + Z Rail Offset',`= ${n(d.motor_gap)} / 2 + (${n(d.pv_module_width)} - ${n(d.pv_module_hole_distance)}) / 2 + ${n(d.z_rail_offset)}`,`= ${n(first)} mm`,'','Second rail position increment:','PV Module Hole Distance + Hat Rail Hole Distance / 2 - Z Rail Offset','','Next rail increment:','PV Module Hole Distance + Hat Rail Hole Distance','','Support plate rules:','Base condition: each module rail has minimum 1 support plate.','Bearing 110: closest left/right rails get 2 plates.','Bearing 100: closest left/right rails get 4 plates.','Taper rule: 4 → 3 → 2 → 1, or 2 → 1.','Beam height compensation:','A/120 level = 0, B/110 level = 1, C/100 level = 2.','Corrected formula:','Final plates = max(1, taper plates + rail beam level - bearing beam level)','The bearing beam level is used as the reference, not the nearest rail beam level.','',`Module Support Plates / Side = ${n(row['Module Support Plates / Side'])}`,`Module Support Plates / Tracker = ${n(row['Module Support Plates / Tracker'])}`);
+  lines.push('4) MODULE SUPPORT PLATE K001099 CALCULATION','-'.repeat(90),'Rail positions are calculated from mid-plane on one side, then mirrored to the other side.','','First rail position:','Motor Gap / 2 + (PV Module Width - PV Module Transverse Hole Distance) / 2 + Z Rail Offset',`= ${n(d.motor_gap)} / 2 + (${n(d.pv_module_width)} - ${n(d.pv_module_hole_distance)}) / 2 + ${n(d.z_rail_offset)}`,`= ${n(first)} mm`,'','Second rail position increment:','PV Module Transverse Hole Distance + Hat Rail Hole Distance / 2 - Z Rail Offset','','Next rail increment:','PV Module Transverse Hole Distance + Hat Rail Hole Distance','','Support plate rules:','Base condition: each module rail has minimum 1 support plate.','Bearing 110: closest left/right rails get 2 plates.','Bearing 100: closest left/right rails get 4 plates.','Taper rule: 4 → 3 → 2 → 1, or 2 → 1.','Beam height compensation:','A/120 level = 0, B/110 level = 1, C/100 level = 2.','Corrected formula:','Final plates = max(1, taper plates + rail beam level - bearing beam level)','The bearing beam level is used as the reference, not the nearest rail beam level.','',`Module Support Plates / Side = ${n(row['Module Support Plates / Side'])}`,`Module Support Plates / Tracker = ${n(row['Module Support Plates / Tracker'])}`);
   return lines.join('\n');
 }
 function renderLogic(){
@@ -527,14 +566,14 @@ function saveHighResSketch(){
 }
 
 function projectSummaryRows(p,calc){
-  return [['Field','Value'],['Project Name',p.project_name],['Project Code',p.project_code],['Foundation Type',p.inputs.foundation_type],['CAD Blocks Availability',p.inputs.cad_blocks_available],['BOM Mode',E.getBomModeText(p)],['Max Span Length',p.inputs.max_span_length],['PV Module Power (Wp)',p.inputs.pv_power],['Export Date/Time',formatDateTime()],['Total Trackers',calc.kpis.totalTrackers],['Total PV Modules',calc.kpis.totalModules],['Plant Power (MWp)',Number(calc.kpis.totalPower.toFixed(3))],['BOM Line Items',calc.bom.rows.length]];
+  return [['Field','Value'],['Project Name',p.project_name],['Project Code',p.project_code],['Foundation Type',p.inputs.foundation_type],['CAD Blocks Availability',p.inputs.cad_blocks_available],['BOM Mode',E.getBomModeText(p)],['SOLTRK Version',`SOLTRK ${E.normalizeSoltrkVersion(p.soltrk_version)}`],['Max Span Length',p.inputs.max_span_length],['PV Module Power (Wp)',p.inputs.pv_power],['Export Date/Time',formatDateTime()],['Total Trackers',calc.kpis.totalTrackers],['Total PV Modules',calc.kpis.totalModules],['Plant Power (MWp)',Number(calc.kpis.totalPower.toFixed(3))],['BOM Line Items',calc.bom.rows.length]];
 }
-function inputExportRows(p){const i=p.inputs;return [['Input','Value'],['Project Name',p.project_name],['Project Code',p.project_code],['CAD Blocks Availability',i.cad_blocks_available],['BOM Mode',E.getBomModeText(p)],['Max Span Length',i.max_span_length],['PV Module Width',i.pv_module_width],['PV Module Length',i.pv_module_length],['PV Module Hole Distance',i.pv_module_hole_distance],['Hat Rail Hole Distance',i.hat_rail_hole_distance],['Z Rail Design Offset',i.z_rail_offset],['PV Module Gap',i.pv_module_gap],['PV Module Gap Locked',i.pv_gap_locked?'Yes':'No'],['PV Module Gap Formula','PV Module Hole Distance + Hat Rail Hole Distance - PV Module Width'],['Motor Gap',i.motor_gap],['Target End Gap',i.target_end_gap],['Overlap A/B',i.overlap_ab],['Overlap B/C',i.overlap_bc],['Main Beam A Length',i.main_beam_a_length],['Slew Drive Connection Length',i.main_beam_connection_length],['Main Beam B Length',i.main_beam_b_length],['Main Beam C Short Length',i.main_beam_c_short_length],['Main Beam C Long Length',i.main_beam_c_long_length],['Mid Plane to Beginning of Main Beam A / Connection',i.mid_plane_to_beam_a]];}
+function inputExportRows(p){const i=p.inputs;return [['Input','Value'],['Project Name',p.project_name],['Project Code',p.project_code],['CAD Blocks Availability',i.cad_blocks_available],['BOM Mode',E.getBomModeText(p)],['SOLTRK Version',`SOLTRK ${E.normalizeSoltrkVersion(p.soltrk_version)}`],['Max Span Length',i.max_span_length],['PV Module Width',i.pv_module_width],['PV Module Length',i.pv_module_length],['PV Module Transverse Hole Distance',i.pv_module_hole_distance],['PV Module Longitudinal Hole Distance 1',i.pv_module_longitudinal_hole_distance_1],['PV Module Longitudinal Hole Distance 2',i.pv_module_longitudinal_hole_distance_2],['PV Module Longitudinal Hole Distance 3',i.pv_module_longitudinal_hole_distance_3],['Hat Rail Hole Distance',i.hat_rail_hole_distance],['Z Rail Design Offset',i.z_rail_offset],['PV Module Gap',i.pv_module_gap],['PV Module Gap Locked',i.pv_gap_locked?'Yes':'No'],['PV Module Gap Formula','PV Module Transverse Hole Distance + Hat Rail Hole Distance - PV Module Width'],['Motor Gap',i.motor_gap],['Target End Gap',i.target_end_gap],['Overlap A/B',i.overlap_ab],['Overlap B/C',i.overlap_bc],['Main Beam A Length',i.main_beam_a_length],['Slew Drive Connection Length',i.main_beam_connection_length],['Main Beam B Length',i.main_beam_b_length],['Main Beam C Short Length',i.main_beam_c_short_length],['Main Beam C Long Length',i.main_beam_c_long_length],['Mid Plane to Beginning of Main Beam A / Connection',i.mid_plane_to_beam_a]];}
 function customBearingExportRows(p,calc){
   if(E.cadBlocksAreAvailable(p)){
     const rows=[['Array Type','Mode','Posts / Pairs','North / Pair Distances','South Distances','Lock']];for(const pv of Object.keys(p.bearing_rules).sort((a,b)=>Number(a)-Number(b)))rows.push(ruleToTableValues(Number(pv),p.bearing_rules[pv]));return rows;
   }
-  const rows=[['Array Type','Mode','Max Span Length (mm)','Tracker Length (mm)','Tracker Type','Bearing Posts']];for(const r of calc.schedule)rows.push([`${r['PV Modules per Tracker']}-PV`,'Symmetrical',E.niceNumber(E.asNumber(p.inputs.max_span_length,8500)),E.niceNumber(r['Tracker Length (mm)']),r['Span Type'],r['Bearing Posts / Tracker']]);return rows;
+  const rows=[['Array Type','Mode','Max Span Length (mm)','Tracker Length (mm)','Tracker Type','Bearing Posts']];for(const r of calc.schedule)rows.push([`${r['PV Modules per Tracker']}-PV`,'Symmetrical',E.niceNumber(E.asNumber(p.inputs.max_span_length,7900)),E.niceNumber(r['Tracker Length (mm)']),r['Span Type'],r['Bearing Posts / Tracker']]);return rows;
 }
 function exportProject(p){
   const calc=E.calculateProject(p,partMaster,partMasterColumns);const arrays=[SELECTED_ARRAY_COLUMNS,...calc.active.map(r=>SELECTED_ARRAY_COLUMNS.map(c=>r[c]??''))];const bomColumns=calc.bom.columns.filter(c=>!['note','notes','calculationnote'].includes(E.normalizeText(c)));const bom=[bomColumns,...calc.bom.rows.map(r=>bomColumns.map(c=>r[c]??''))];const sheets=[{name:'Project Summary',rows:projectSummaryRows(p,calc)},{name:'Inputs',rows:inputExportRows(p)},{name:'Custom Bearing Rules',rows:customBearingExportRows(p,calc)},{name:'Selected Arrays',rows:arrays},{name:'Project BOM',rows:bom}];const blob=XlsxLite.createWorkbookBlob(sheets);downloadBlob(blob,`${safeFilename(p.project_code)}_${safeFilename(p.project_name)}_LUMA_Complete_BOM.xlsx`);
@@ -588,7 +627,7 @@ function initEvents(){
   attachScrollSyncListeners();document.addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey))return;const key=e.key.toLowerCase();if(key==='s'){e.preventDefault();if(e.shiftKey)saveWorkspaceAs(true);else saveWorkspace();}else if(key==='n'){e.preventDefault();newProject();}else if(key==='d'){e.preventDefault();duplicateProject();}else if(key==='o'){e.preventDefault();openWorkspace();}});
 }
 function initApp(){
-  initEvents();let loaded=false;try{const recovery=storageGet(RECOVERY_KEY);if(recovery){const recover=confirm('An unsaved recovery workspace was found.\n\nChoose OK to recover it, or Cancel to start with a new default workspace.');if(recover){loadWorkspacePayload(JSON.parse(recovery),true);loaded=true;}else storageRemove(RECOVERY_KEY);}}catch{storageRemove(RECOVERY_KEY);}
+  initEvents();let loaded=false;const recoveryKey=storageGet(RECOVERY_KEY)?RECOVERY_KEY:(storageGet(LEGACY_RECOVERY_KEY)?LEGACY_RECOVERY_KEY:RECOVERY_KEY);try{const recovery=storageGet(recoveryKey);if(recovery){const recover=confirm('An unsaved recovery workspace was found.\n\nChoose OK to recover it, or Cancel to start with a new default workspace.');if(recover){loadWorkspacePayload(JSON.parse(recovery),true);if(recoveryKey===LEGACY_RECOVERY_KEY)storageRemove(LEGACY_RECOVERY_KEY);loaded=true;}else storageRemove(recoveryKey);}}catch{storageRemove(recoveryKey);}
   if(!loaded){workspace=makeDefaultWorkspace();partMasterColumns=[...workspace.shared_part_master.columns];partMaster=clone(workspace.shared_part_master.rows);currentPartMasterListName=workspace.shared_part_master.list_name;renderAll(true);saveRecovery();}
 }
 

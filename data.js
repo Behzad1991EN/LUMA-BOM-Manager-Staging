@@ -1,5 +1,5 @@
-// Generated directly from LUMA_BOM_Manager V3.30 Part Master.
-globalThis.INTERNAL_PART_MASTER_COLUMNS = ["Part", "TAG", "Description", "Part Number", "Category", "Unit"];
+// Generated directly from LUMA_BOM_Manager V3.40 Part Master.
+globalThis.INTERNAL_PART_MASTER_COLUMNS = ["Part", "TAG", "Description", "Part Number", "Category", "Unit", "Material", "Weight"];
 globalThis.INTERNAL_PART_MASTER_RAW = [
   {
     "Part": "Main Post",

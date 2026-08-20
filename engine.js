@@ -1,7 +1,7 @@
 'use strict';
 
 (function(global){
-  const PART_COLUMNS = ['Part','TAG','Description','Part Number','Category','Unit'];
+  const PART_COLUMNS = ['Part','TAG','Description','Part Number','Category','Unit','Material','Weight'];
 
   function normalizeText(value){
     return String(value ?? '').trim().toLowerCase().replaceAll('×','x').replace(/[^a-z0-9]+/g,'');
@@ -78,15 +78,15 @@
     return null;
   }
   function loadInternalPartMaster(){
-    return (global.INTERNAL_PART_MASTER_RAW || []).map(raw => {
-      const record = {...raw};
-      if(String(record.Category || '').toLowerCase().startsWith('fasteners')){
+    const rows=(global.INTERNAL_PART_MASTER_RAW || []).map(raw => {
+      const record={...raw};
+      if(String(record.Category||'').toLowerCase().startsWith('fasteners')){
         const readable = fastenerPartNameFromDescription(record.Description);
         if(readable) record.Part = readable;
       }
-      for(const column of PART_COLUMNS){ if(!(column in record)) record[column] = ''; }
       return record;
-    }).filter(record => record.Part || record.TAG || record.Description);
+    });
+    return normalizePartMasterData(PART_COLUMNS,rows).rows;
   }
 
   const DEFAULT_INPUTS = Object.freeze({
@@ -619,6 +619,22 @@
     junctionboxholder:Object.freeze({Material:'DX51D',Weight:0.21}),
     anemometerholderplate:Object.freeze({Material:'DX51D',Weight:0.22}),
   });
+  function defaultBomMetadata(record,calculatedItem=''){
+    const calculatedKey=normalizeText(calculatedItem),partKey=normalizeText(record?.Part??record?.['Part Name']);
+    let defaults=BOM_DEFAULT_METADATA[calculatedKey]||BOM_DEFAULT_METADATA[partKey];
+    if(!defaults&&partKey.startsWith('soltrk')&&partKey.endsWith('holder'))defaults=BOM_DEFAULT_METADATA.soltrkholder;
+    return defaults||(recordIsFastener(record)?{Material:'-',Weight:'-'}:{Material:'',Weight:''});
+  }
+  function normalizePartMasterData(columns,rows){
+    const normalizedColumns=Array.isArray(columns)&&columns.length?[...columns]:[...PART_COLUMNS];
+    for(const column of ['Material','Weight'])if(!normalizedColumns.some(existing=>normalizeText(existing)===normalizeText(column)))normalizedColumns.push(column);
+    const normalizedRows=(Array.isArray(rows)?rows:[]).map(raw=>{
+      const source=raw&&typeof raw==='object'?raw:{},record={...source},defaults=defaultBomMetadata(record);
+      for(const column of normalizedColumns)if(!Object.prototype.hasOwnProperty.call(record,column))record[column]=['Material','Weight'].includes(column)?defaults[column]:'';
+      return record;
+    }).filter(record=>record.Part||record.TAG||record.Description);
+    return {columns:normalizedColumns,rows:normalizedRows};
+  }
   function bomRowKey(record){
     const tag=normalizeText(record?.TAG);
     if(tag) return `tag:${tag}`;
@@ -644,16 +660,14 @@
     return Object.fromEntries(rows.map((row,index)=>[String(asInt(row['PV Modules per Tracker'])),distributed[index]]));
   }
   function contextEquipmentQty(context,key,row){ return asInt(context?.[`${key}ByPv`]?.[String(asInt(row['PV Modules per Tracker']))],0); }
-  function applyBomMetadata(row,calculatedItem,project){
-    const key=bomRowKey(row),override=project?.bom_overrides?.[key]||{};
-    const metadataDefaults=BOM_DEFAULT_METADATA[normalizeText(calculatedItem)]||BOM_DEFAULT_METADATA[normalizeText(row.Part??row['Part Name'])];
-    const defaults=recordIsFastener(row)?{Material:'-',Weight:'-'}:(metadataDefaults||{Material:'',Weight:''});
-    row.Material=Object.prototype.hasOwnProperty.call(override,'Material')?override.Material:defaults.Material;
-    row.Weight=Object.prototype.hasOwnProperty.call(override,'Weight')?override.Weight:defaults.Weight;
-    row._bom_key=key;
+  function applyBomMetadata(row,calculatedItem,sourceRecord=null){
+    const defaults=defaultBomMetadata(row,calculatedItem),source=sourceRecord&&typeof sourceRecord==='object'?sourceRecord:{};
+    row.Material=Object.prototype.hasOwnProperty.call(source,'Material')?source.Material:defaults.Material;
+    row.Weight=Object.prototype.hasOwnProperty.call(source,'Weight')?source.Weight:defaults.Weight;
+    row._bom_key=bomRowKey(row);
   }
 
-  // V3.30 automatic BOM definitions, kept in the same order as bom_definitions.py.
+  // V3.40 automatic BOM definitions, kept in the same order as bom_definitions.py.
   const BOM_DEFINITIONS = [
     ['Main Post',r=>asInt(r['Number of Trackers']),['main post','drive pile','hea 140'],'Structure / Posts','Total Trackers QTY'],
     ['Slew Drive Seat',r=>2*asInt(r['Number of Trackers']),['slew drive seat','slew seat'],'Drive / Slew','2 × Main Post'],
@@ -757,7 +771,7 @@
       selectedRows.forEach(scheduleRow=>{ quantitiesByPv[asInt(scheduleRow['PV Modules per Tracker'])]=asNumber(formula(scheduleRow,bomContext),0); });
       const resolvedKeywords=typeof keywords==='function'?keywords(bomContext):keywords;
       const match=findPartMasterMatch(partMaster,resolvedKeywords,calculatedItem,categoryFallback);
-      if(!match) continue; // V3.30 authoritative Part Master.
+      if(!match) continue; // V3.40 authoritative Part Master.
       if(note){
         const tagKey=normalizeText(match.TAG),partKey=normalizeText(match.Part);
         if(tagKey) notesByTag[tagKey]=note;
@@ -780,7 +794,7 @@
       });
       row['Total Qty']=niceNumber(totalQty);
       row['Calculation Note']=note;
-      applyBomMetadata(row,calculatedItem,project);
+      applyBomMetadata(row,calculatedItem,match);
       if(quantityOverrideKey) row._quantity_override_key=quantityOverrideKey;
       rows.push(row);
     }
@@ -801,7 +815,7 @@
       qtyColumns.forEach(column=>row[column]='');
       row['Total Qty']=niceNumber(qty);
       row['Calculation Note']='Manual standard part entered by user';
-      applyBomMetadata(row,itemName,project);
+      applyBomMetadata(row,itemName,values);
       rows.push(row);
     }
     rows.forEach((row,index)=>{
@@ -822,7 +836,7 @@
 
   function buildPartMasterPreview(partMaster,bomResult){
     return partMaster.map((record,index)=>{
-      const row={'No.':index+1,'Part Name':record.Part??'',TAG:record.TAG??'',Description:record.Description??'','Part Number':record['Part Number']??'',Category:record.Category??'',Unit:record.Unit??''};
+      const row={'No.':index+1,'Part Name':record.Part??'',TAG:record.TAG??'',Description:record.Description??'','Part Number':record['Part Number']??'',Category:record.Category??'',Unit:record.Unit??'',Material:record.Material??'',Weight:record.Weight??''};
       const tag=normalizeText(record.TAG),part=normalizeText(record.Part);
       row['Calculation Note']=bomResult.notesByTag[tag] ?? bomResult.notesByPart[part] ?? '';
       row._part_master_index=index;
@@ -846,7 +860,7 @@
   global.LumaEngine={
     PART_COLUMNS,DEFAULT_INPUTS,BOM_DEFINITIONS,BOM_DEFAULT_METADATA,
     normalizeText,asNumber,asInt,niceNumber,firstNonEmpty,ceilHalf,ceilUp,
-    fastenerPartNameFromDescription,loadInternalPartMaster,defaultTrackerQuantities,defaultManualParts,defaultBearingRule,normalizeBearingRule,
+    fastenerPartNameFromDescription,loadInternalPartMaster,normalizePartMasterData,defaultTrackerQuantities,defaultManualParts,defaultBearingRule,normalizeBearingRule,
     getDesignInputs,calculateAutoPvModuleGap,cadBlocksAreAvailable,getBomModeText,getSpanLimits,estimateSpanCountForLength,
     calculateTrackerGeometry,getBearingRuleForPv,getPositionsFromRule,classifyBearing,classifyBeamZoneForPosition,calculateEstimatedBearingPositions,calculateBearingLayoutForTracker,
     generateModuleRailPositionsForSide,closestRailIndicesAroundPosition,calculateModuleSupportPlatesForTracker,buildSchedule,buildBearingLayoutTable,buildModuleSupportLayoutTable,

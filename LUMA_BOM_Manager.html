@@ -8,7 +8,9 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <aside class="sidebar" aria-label="Sidebar">
+  <div id="sidebarScrim" class="sidebar-scrim" hidden></div>
+  <aside id="appSidebar" class="sidebar" aria-label="Workspace and project menu">
+    <div class="sidebar-mobile-header"><strong>Menu</strong><button id="mobileMenuCloseBtn" class="mobile-menu-close" type="button" aria-label="Close menu">&times;</button></div>
     <h1>Sidebar</h1>
 
     <section class="sidebar-section">
@@ -55,12 +57,13 @@
         <button id="exportActiveBtn" class="export">Active Project</button><button id="exportAllBtn" class="export">All Projects</button>
         <button id="changelogBtn">Changelog</button><span></span>
       </div>
-      <div class="version">Version 3.30 <br/>19.08.2026<br/>By Behzad Eydiyoon</div>
+      <div class="version">Version 3.40 <br/>20.08.2026<br/>By Behzad Eydiyoon</div>
     </section>
   </aside>
 
   <main class="main" id="mainContent">
     <header class="app-header">
+      <button id="mobileMenuBtn" class="mobile-menu-button" type="button" aria-label="Open menu" aria-controls="appSidebar" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg></button>
       <div class="header-copy">
         <h1>LUMA BOM Manager</h1>
         <p>Use Inputs → Array Table → Review selected arrays, BOM, support plates and tracker sketch.</p>

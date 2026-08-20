@@ -730,7 +730,7 @@
     ['k001402 - DIN 982 ISO 7040 - M4',(r,c)=>4*contextEquipmentQty(c,'soltrk',r)+4*asInt(r['Number of Trackers']),['k001402','din 982','iso 7040','m4'],'Fasteners / SOLTRK + Limit Switch','4 × SOLTRK + 2 × Limit Switch'],
     ['k001454 - DIN 7985 ISO 7045 - M5 × 16',(r,c)=>4*contextEquipmentQty(c,'junctionBox',r)+(c.soltrkVersion==='3.0'?4*contextEquipmentQty(c,'soltrk',r):0),['k001454','din 7985','iso 7045','m5','16'],'Fasteners / Junction Box + SOLTRK 3.0','4 × Junction Box + (SOLTRK 3.0: 4 × SOLTRK)'],
     ['k001513 - DIN 982 ISO 7040 - M5',(r,c)=>4*contextEquipmentQty(c,'junctionBox',r)+(c.soltrkVersion==='3.0'?4*contextEquipmentQty(c,'soltrk',r):0)+ceilUp((3/48)*asInt(r['Number of Trackers'])),['k001513','din 982','iso 7040','m5'],'Fasteners / Junction Box + SOLTRK 3.0 Holder Plate + Anemometer','4 × Junction Box + (SOLTRK 3.0: 4 × SOLTRK 3.0 Holder Plate) + ceil((3/48) × Tracker) for Anemometer, per array type'],
-    ['k001539 - DIN 7985 ISO 7045 - M5 × 20',r=>ceilUp((3/48)*asInt(r['Number of Trackers'])),['k001539','din 7985','iso 7045','m5','20'],'Fasteners / Anemometer','ceil((3/48) × Anemometer) per array type'],
+    ['k001539 - DIN 7985 ISO 7045 - M5 × 20',r=>3*ceilUp(asInt(r['Number of Trackers'])/48),['k001539','din 7985','iso 7045','m5','20'],'Fasteners / Anemometer','Anemometer Bracket × 3'],
     ['k001479 - Tube Spacer',r=>32*asInt(r['Number of Trackers']),['k001479','tube spacer','m12','16','12.7','13.3'],'Fastener','2 × k001388'],
   ];
 

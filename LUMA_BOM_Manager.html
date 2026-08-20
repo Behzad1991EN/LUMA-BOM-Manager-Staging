@@ -12,10 +12,12 @@
     <h1>Sidebar</h1>
 
     <section class="sidebar-section">
-      <h2>WORKSPACE</h2>
-      <div class="two-col-buttons">
-        <button id="newWorkspaceBtn">New</button><button id="openWorkspaceBtn">Open</button>
-        <button id="saveWorkspaceBtn">Save</button><button id="saveAsWorkspaceBtn">Save As</button>
+      <div class="workspace-heading"><h2>WORKSPACE</h2><strong id="workspaceName" title="Sample">Sample</strong></div>
+      <div class="workspace-toolbar" aria-label="Workspace actions">
+        <button id="newWorkspaceBtn" class="workspace-tool-button" type="button" aria-label="New workspace" title="New"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg></button>
+        <button id="openWorkspaceBtn" class="workspace-tool-button" type="button" aria-label="Open workspace" title="Open"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 18.5 5.4 9h14.8l-2.4 9.5H3Z" /><path d="M5 9V5.5h5l2 2h6V9" /></svg></button>
+        <button id="renameWorkspaceBtn" class="workspace-tool-button" type="button" aria-label="Rename workspace" title="Rename"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 4.2-1 10.6-10.6-3.2-3.2L5 15.8 4 20Z" /><path d="m13.8 7 3.2 3.2" /></svg></button>
+        <button id="saveWorkspaceBtn" class="workspace-tool-button" type="button" aria-label="Save workspace" title="Save"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h12l2 2v16H5V3Z" /><path d="M8 3v6h8V3M8 21v-7h8v7" /></svg></button>
       </div>
     </section>
 

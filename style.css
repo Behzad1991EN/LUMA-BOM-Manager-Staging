@@ -156,6 +156,54 @@ textarea:focus {
     font-weight: 800;
 }
 
+.workspace-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 7px;
+}
+
+.workspace-heading h2 {
+    flex: 0 0 auto;
+    margin: 0;
+}
+
+#workspaceName {
+    min-width: 0;
+    overflow: hidden;
+    color: #333;
+    font-size: 12px;
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.workspace-toolbar {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 7px;
+}
+
+.workspace-tool-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 34px;
+    padding: 4px;
+}
+
+.workspace-tool-button svg {
+    width: 19px;
+    height: 19px;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.8;
+}
+
 .two-col-buttons {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -946,6 +994,118 @@ th.wrap {
    STEEL STRUCTURE ANALYSIS
    ========================================================= */
 
+.analysis-home-header {
+    max-width: 1100px;
+    margin-bottom: 18px;
+}
+
+.analysis-home-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(250px, 1fr));
+    gap: 14px;
+    max-width: 1200px;
+}
+
+.analysis-home-card {
+    display: grid;
+    grid-template-columns: 54px minmax(0, 1fr) 20px;
+    align-items: center;
+    gap: 13px;
+    min-height: 142px;
+    padding: 17px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    text-align: left;
+}
+
+.analysis-home-card:hover {
+    border-color: var(--accent);
+    background: #FFF8ED;
+    box-shadow: 0 5px 14px rgba(74, 50, 20, .12);
+}
+
+.analysis-home-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 54px;
+    height: 54px;
+    color: var(--accent-dark);
+    border: 1px solid #E5B36E;
+    background: #FFF0D9;
+}
+
+.analysis-home-icon svg {
+    width: 29px;
+    height: 29px;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.7;
+}
+
+.analysis-home-copy {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.analysis-home-copy > strong {
+    color: var(--accent-dark);
+    font-size: 17px;
+}
+
+.analysis-home-copy > span {
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.35;
+}
+
+.analysis-home-copy > em {
+    color: var(--export);
+    font-size: 13px;
+    font-style: normal;
+    font-weight: 800;
+}
+
+.analysis-home-arrow {
+    color: var(--accent);
+    font-size: 28px;
+    font-weight: 400;
+}
+
+.analysis-subpage-nav {
+    display: flex;
+    align-items: center;
+    min-height: 38px;
+    margin-bottom: 8px;
+}
+
+.analysis-back-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 34px;
+    padding: 5px;
+    color: var(--accent-dark);
+    border-color: #D5A158;
+    background: #FFF5E4;
+}
+
+.analysis-back-button svg {
+    width: 21px;
+    height: 21px;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 2;
+}
+
 .analysis-title-row {
     display: flex;
     align-items: flex-start;
@@ -1069,6 +1229,65 @@ th.wrap {
     font-weight: 700;
 }
 
+.analysis-info {
+    border-color: #79A7B8;
+    background: #EFF8FB;
+    color: #1E5A70;
+}
+
+.analysis-package-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+}
+
+.analysis-package-section {
+    min-width: 0;
+    border: 1px solid var(--border);
+    background: var(--card);
+}
+
+.analysis-package-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    background: #FFF5E4;
+}
+
+.analysis-package-header span {
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+.analysis-package-header h3 {
+    margin: 2px 0 3px;
+    color: var(--accent-dark);
+    font-size: 16px;
+}
+
+.analysis-package-header p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.analysis-package-header > strong {
+    flex: 0 0 auto;
+    color: var(--export);
+    font-size: 16px;
+}
+
+.analysis-package-section .table-wrap {
+    margin: 0;
+    border: 0;
+}
+
 .analysis-detail-title {
     margin-top: 18px;
 }
@@ -1078,18 +1297,31 @@ th.wrap {
 }
 
 @media (max-width: 1250px) {
+    .analysis-home-grid {
+        grid-template-columns: repeat(2, minmax(250px, 1fr));
+    }
+
     .analysis-summary {
         grid-template-columns: repeat(2, minmax(220px, 1fr));
     }
 }
 
 @media (max-width: 850px) {
+    .analysis-home-grid {
+        grid-template-columns: minmax(250px, 1fr);
+    }
+
     .analysis-title-row {
         flex-direction: column;
     }
 
     .analysis-ratio {
         align-items: flex-start;
+    }
+
+    .analysis-package-header {
+        align-items: flex-start;
+        flex-direction: column;
     }
 }
 

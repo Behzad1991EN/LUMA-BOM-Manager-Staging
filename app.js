@@ -56,7 +56,7 @@ const CHANGELOG = {
   '3.11': ['Added delete button to part master tab','Added optional fastener contingency percentage column to Project BOM'],
   '3.20': ['Added optional Weight, Material and Contingency columns' , 'Added PV module longitudinal holes distance in input tab','Added a dropdown to select SOLTRK version','Modified the SOLTRK and Junction Box rows to allow manual editing.'
   ],
-  '3.30': ['Added Analysis tab with steel-structure weight, material filtering, per-material price registration, multi-currency costs, and kg/kW','Temporarily changed k001099 calculation to Hat rail + Z rail','Updated k001509 to include 4 × Junction Box Holder Plate for both SOLTRK versions','Updated k001503 to DIN 976-1 - M6 × 1000 and ceil(previous result / 5)','Updated k001513 to include 4 × SOLTRK 3.0 Holder Plate in SOLTRK 3.0 mode','Added version-specific SOLTRK and Holder items: 2.0 uses k001534/k001505; 3.0 uses k001549/k001568']
+  '3.30': ['Added Analysis tab with steel-structure weight, material filtering, per-material price registration, multi-currency costs, and kg/kW','Redesigned Analysis as a home page with Steel Structure, Electrical, Major Components, Fasteners, Total Project Cost, and Fastener Packaging destinations','Added persistent unit-price registers for Electrical, Major Components, and Fasteners','Added eight installation-section fastener packages with quantity per package and required quantity','Kept inline table editors active when repositioning the caret with the mouse','Updated all file save actions to request a destination location when supported','Changed k001539 to Anemometer Bracket × 3','Temporarily changed k001099 calculation to Hat rail + Z rail','Updated k001509 to include 4 × Junction Box Holder Plate for both SOLTRK versions','Updated k001503 to DIN 976-1 - M6 × 1000 and ceil(previous result / 5)','Updated k001513 to include 4 × SOLTRK 3.0 Holder Plate in SOLTRK 3.0 mode','Added version-specific SOLTRK and Holder items: 2.0 uses k001534/k001505; 3.0 uses k001549/k001568']
 };
 const CHANGELOG_DATES = {'1.00':'26.05.2026','2.00':'08.06.2026','2.10':'16.06.2026','2.20':'17.06.2026','3.00':'08.07.2026','3.10':'22.07.2026','3.11':'27.07.2026','3.20':'18.08.2026','3.30':'19.08.2026'};
 
@@ -71,7 +71,7 @@ let selectedBomRows = new Set();
 let customRuleSelectedPv = null;
 let uiState = {
   customRule:{pv:'14',mode:'Symmetrical',symmetrical_distance:'8320',semi_pair_count:3,asym_post_count:3,semi_pair_gaps:['8320','7350','6500','',''],asym_north_gaps:['8320','7350','6500','',''],asym_south_gaps:['8320','7350','6500','','']},
-  projectBomSearch:'',partMasterSearch:'',analysisPriceEditor:{},showPv:true,showSupport:true,showRails:true,showBeams:true,
+  projectBomSearch:'',partMasterSearch:'',analysisPage:'home',analysisPriceEditor:{},analysisItemPriceEditor:{},showPv:true,showSupport:true,showRails:true,showBeams:true,
 };
 let fixedScrollTarget = null;
 let fixedScrollSyncing = false;
@@ -98,6 +98,32 @@ function showToast(message,duration=2200){
 function downloadBlob(blob,filename){
   const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
 }
+async function chooseSaveLocation(filename,description,accept){
+  if(typeof window.showSaveFilePicker==='function'){
+    try{
+      const handle=await window.showSaveFilePicker({suggestedName:filename,types:[{description,accept}]});
+      return {handle,picker:true,cancelled:false};
+    }catch(err){
+      if(err?.name==='AbortError')return {handle:null,picker:true,cancelled:true};
+      console.warn('The location picker is unavailable; using the browser download instead.',err);
+    }
+  }
+  return {handle:null,picker:false,cancelled:false};
+}
+async function writeBlobToSaveLocation(blob,filename,location){
+  if(location?.cancelled)return {saved:false,cancelled:true,picker:!!location.picker};
+  if(location?.handle){
+    try{const writable=await location.handle.createWritable();await writable.write(blob);await writable.close();return {saved:true,picker:true};}
+    catch(err){console.warn('The selected file could not be written; using the browser download instead.',err);}
+  }
+  downloadBlob(blob,filename);return {saved:true,picker:false};
+}
+async function saveBlobWithLocation(blob,filename,description,accept){
+  const location=await chooseSaveLocation(filename,description,accept);return writeBlobToSaveLocation(blob,filename,location);
+}
+async function saveBlobToDirectory(blob,filename,directoryHandle){
+  const handle=await directoryHandle.getFileHandle(filename,{create:true});const writable=await handle.createWritable();await writable.write(blob);await writable.close();
+}
 function getActiveProject(){ return workspace?.projects?.[workspace.active_project_id] || null; }
 function isAnalysisCurrency(value){return ANALYSIS_CURRENCIES.some(([code])=>code===value);}
 function normalizeAnalysisMaterialPrices(raw){
@@ -111,23 +137,31 @@ function normalizeAnalysisMaterialPrices(raw){
   }
   return normalized;
 }
+function normalizeAnalysisItemPrices(raw){
+  const normalized={};
+  for(const [key,value] of Object.entries(raw&&typeof raw==='object'?raw:{})){
+    const record=value&&typeof value==='object'?value:{};const price=Number(record.price_per_unit??record.price);if(!key||!Number.isFinite(price)||price<0)continue;
+    normalized[String(key)]={price_per_unit:price,currency:isAnalysisCurrency(record.currency)?record.currency:'USD'};
+  }
+  return normalized;
+}
 function makeProject(name='Sample Project',code='SAMPLE'){
   return {
     project_id:uuid(),project_name:name,project_code:code,
     inputs:clone(E.DEFAULT_INPUTS),tracker_quantities:E.defaultTrackerQuantities(),bearing_rules:{},manual_parts:E.defaultManualParts(),
     contingency_enabled:false,fastener_contingency_percent:0,bom_metadata_enabled:true,soltrk_version:'2.0',bom_overrides:{},equipment_quantity_overrides:{},
-    analysis_material_filter:'ALL',analysis_material_prices:{},
+    analysis_material_filter:'ALL',analysis_material_prices:{},analysis_item_prices:{},
     selected_logic_pv:'',selected_sketch_pv:'',is_dirty:false,
   };
 }
 function makeDefaultWorkspace(){
   const project=makeProject('Sample Project','SAMPLE');
-  return {format_version:WORKSPACE_FORMAT_VERSION,workspace_name:'Untitled Workspace',active_project_id:project.project_id,projects:{[project.project_id]:project},shared_part_master:{columns:[...INTERNAL_PART_MASTER_COLUMNS],rows:E.loadInternalPartMaster(),list_name:'Default Internal'}};
+  return {format_version:WORKSPACE_FORMAT_VERSION,workspace_name:'Sample',active_project_id:project.project_id,projects:{[project.project_id]:project},shared_part_master:{columns:[...INTERNAL_PART_MASTER_COLUMNS],rows:E.loadInternalPartMaster(),list_name:'Default Internal'}};
 }
 function serializeWorkspace(){
   const projects={};
   for(const [id,p] of Object.entries(workspace.projects)){
-    projects[id]={project_id:p.project_id,project_name:p.project_name,project_code:p.project_code,inputs:clone(p.inputs),tracker_quantities:clone(p.tracker_quantities),bearing_rules:clone(p.bearing_rules),manual_parts:clone(p.manual_parts),contingency_enabled:p.contingency_enabled===true,fastener_contingency_percent:Math.min(100,Math.max(0,E.asNumber(p.fastener_contingency_percent,0))),bom_metadata_enabled:p.bom_metadata_enabled!==false,soltrk_version:E.normalizeSoltrkVersion(p.soltrk_version),bom_overrides:clone(p.bom_overrides||{}),equipment_quantity_overrides:clone(p.equipment_quantity_overrides||{}),analysis_material_filter:p.analysis_material_filter||'ALL',analysis_material_prices:clone(p.analysis_material_prices||{}),selected_logic_pv:p.selected_logic_pv||'',selected_sketch_pv:p.selected_sketch_pv||''};
+    projects[id]={project_id:p.project_id,project_name:p.project_name,project_code:p.project_code,inputs:clone(p.inputs),tracker_quantities:clone(p.tracker_quantities),bearing_rules:clone(p.bearing_rules),manual_parts:clone(p.manual_parts),contingency_enabled:p.contingency_enabled===true,fastener_contingency_percent:Math.min(100,Math.max(0,E.asNumber(p.fastener_contingency_percent,0))),bom_metadata_enabled:p.bom_metadata_enabled!==false,soltrk_version:E.normalizeSoltrkVersion(p.soltrk_version),bom_overrides:clone(p.bom_overrides||{}),equipment_quantity_overrides:clone(p.equipment_quantity_overrides||{}),analysis_material_filter:p.analysis_material_filter||'ALL',analysis_material_prices:clone(p.analysis_material_prices||{}),analysis_item_prices:clone(p.analysis_item_prices||{}),selected_logic_pv:p.selected_logic_pv||'',selected_sketch_pv:p.selected_sketch_pv||''};
   }
   return {format_version:WORKSPACE_FORMAT_VERSION,workspace_name:workspace.workspace_name,active_project_id:workspace.active_project_id,projects,shared_part_master:{columns:[...partMasterColumns],rows:clone(partMaster),list_name:currentPartMasterListName},saved_at:formatDateTime(),application_version:APP_VERSION};
 }
@@ -141,7 +175,7 @@ function normalizeProject(raw,id){
   p.fastener_contingency_percent=Math.min(100,Math.max(0,E.asNumber(raw?.fastener_contingency_percent,0)));
   p.bom_metadata_enabled=raw?.bom_metadata_enabled!==false;
   p.soltrk_version=E.normalizeSoltrkVersion(raw?.soltrk_version);p.bom_overrides=clone(raw?.bom_overrides||{});p.equipment_quantity_overrides=clone(raw?.equipment_quantity_overrides||{});
-  p.analysis_material_filter=String(raw?.analysis_material_filter||'ALL');p.analysis_material_prices=normalizeAnalysisMaterialPrices(raw?.analysis_material_prices);
+  p.analysis_material_filter=String(raw?.analysis_material_filter||'ALL');p.analysis_material_prices=normalizeAnalysisMaterialPrices(raw?.analysis_material_prices);p.analysis_item_prices=normalizeAnalysisItemPrices(raw?.analysis_item_prices);
   const legacyPrice=Number(raw?.analysis_price_per_kg);if(!Object.keys(p.analysis_material_prices).length&&p.analysis_material_filter!=='ALL'&&Number.isFinite(legacyPrice)&&legacyPrice>0)p.analysis_material_prices[p.analysis_material_filter]={material:p.analysis_material_filter,price_per_kg:legacyPrice,currency:isAnalysisCurrency(raw?.analysis_currency)?raw.analysis_currency:'USD'};
   p.selected_logic_pv=String(raw?.selected_logic_pv||'');p.selected_sketch_pv=String(raw?.selected_sketch_pv||'');p.is_dirty=false;
   return p;
@@ -151,7 +185,7 @@ function loadWorkspacePayload(raw,recovery=false){
   const projects={};for(const [id,r] of Object.entries(raw.projects)){const p=normalizeProject(r,id);projects[p.project_id]=p;}
   let active=String(raw.active_project_id||'');if(!projects[active]) active=Object.keys(projects)[0];
   const shared=raw.shared_part_master||{};
-  workspace={format_version:String(raw.format_version||WORKSPACE_FORMAT_VERSION),workspace_name:String(raw.workspace_name||'Untitled Workspace'),active_project_id:active,projects,shared_part_master:{columns:Array.isArray(shared.columns)&&shared.columns.length?[...shared.columns]:[...INTERNAL_PART_MASTER_COLUMNS],rows:Array.isArray(shared.rows)&&shared.rows.length?clone(shared.rows):E.loadInternalPartMaster(),list_name:String(shared.list_name||'Default Internal')}};
+  workspace={format_version:String(raw.format_version||WORKSPACE_FORMAT_VERSION),workspace_name:String(raw.workspace_name||'Sample'),active_project_id:active,projects,shared_part_master:{columns:Array.isArray(shared.columns)&&shared.columns.length?[...shared.columns]:[...INTERNAL_PART_MASTER_COLUMNS],rows:Array.isArray(shared.rows)&&shared.rows.length?clone(shared.rows):E.loadInternalPartMaster(),list_name:String(shared.list_name||'Default Internal')}};
   partMasterColumns=[...workspace.shared_part_master.columns];partMaster=clone(workspace.shared_part_master.rows);currentPartMasterListName=workspace.shared_part_master.list_name;workspaceStructureDirty=!!recovery;Object.values(workspace.projects).forEach(p=>p.is_dirty=!!recovery);selectedPartMasterRows.clear();selectedBomRows.clear();
   manualPartCounter=Math.max(2,...Object.keys(projects).flatMap(()=>[]));
   recalculate();renderAll(true);saveRecovery();
@@ -206,6 +240,9 @@ function refreshProjectList(){
     if(p.project_id===selected)opt.selected=true;list.appendChild(opt);
   }
 }
+function updateWorkspaceName(){
+  const label=document.getElementById('workspaceName');if(!label||!workspace)return;const name=String(workspace.workspace_name||'Sample');label.textContent=name;label.title=name;
+}
 function updateHeaderAndKpis(){
   const p=getActiveProject();if(!p||!current)return;
   document.getElementById('currentProjectHeader').textContent=`Current Project: ${p.project_code || '(No Code)'} — ${p.project_name}`;
@@ -217,12 +254,12 @@ function updateHeaderAndKpis(){
 }
 function newWorkspace(){
   openModal('New Workspace',
-    formRowHtml('Workspace Name','newWorkspaceName','Untitled Workspace')+
+    formRowHtml('Workspace Name','newWorkspaceName','Sample')+
     formRowHtml('First Project Name','newWorkspaceProjectName','Sample Project')+
     formRowHtml('Project Code','newWorkspaceProjectCode','PROJECT-001'),[
       {text:'Cancel',onClick:closeModal},
       {text:'Create',onClick:()=>{
-        const wsName=document.getElementById('newWorkspaceName').value.trim()||'Untitled Workspace';
+        const wsName=document.getElementById('newWorkspaceName').value.trim()||'Sample';
         const name=document.getElementById('newWorkspaceProjectName').value.trim()||'Sample Project';
         const code=document.getElementById('newWorkspaceProjectCode').value.trim()||'PROJECT-001';
         const p=makeProject(name,code);workspace={format_version:WORKSPACE_FORMAT_VERSION,workspace_name:wsName,active_project_id:p.project_id,projects:{[p.project_id]:p},shared_part_master:{columns:[...INTERNAL_PART_MASTER_COLUMNS],rows:E.loadInternalPartMaster(),list_name:'Default Internal'}};
@@ -231,17 +268,15 @@ function newWorkspace(){
     ]);
 }
 function openWorkspace(){document.getElementById('workspaceFileInput').click();}
-function saveWorkspace(){saveWorkspaceAs(false);}
-function saveWorkspaceAs(forceName=true){
-  const defaultName=`${safeFilename(workspace.workspace_name)}.luma`;
-  if(forceName){
-    openModal('Save Workspace As',formRowHtml('File Name','workspaceSaveName',defaultName),[
-      {text:'Cancel',onClick:closeModal},
-      {text:'Save',onClick:()=>{let filename=document.getElementById('workspaceSaveName').value.trim()||defaultName;if(!filename.toLowerCase().endsWith('.luma'))filename+='.luma';workspace.workspace_name=filename.replace(/\.luma$/i,'');const payload=serializeWorkspace();downloadBlob(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),filename);clearDirtyFlags();closeModal();showToast('Workspace saved.');}}
-    ]);
-  }else{
-    const payload=serializeWorkspace();downloadBlob(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),defaultName);clearDirtyFlags();showToast('Workspace saved.');
-  }
+function renameWorkspace(){
+  openModal('Rename Workspace',formRowHtml('Workspace Name','renameWorkspaceName',workspace.workspace_name||'Sample'),[
+    {text:'Cancel',onClick:closeModal},
+    {text:'Rename',onClick:()=>{const name=document.getElementById('renameWorkspaceName').value.trim();if(!name){showToast('Enter a workspace name.');return;}workspace.workspace_name=name;workspaceStructureDirty=true;updateWorkspaceName();saveRecovery();closeModal();showToast('Workspace renamed.');}}
+  ]);
+}
+async function saveWorkspace(){
+  const filename=`${safeFilename(workspace.workspace_name)}.luma`;const payload=serializeWorkspace();const result=await saveBlobWithLocation(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),filename,'LUMA workspace',{'application/json':['.luma']});
+  if(!result.saved)return;clearDirtyFlags();showToast(result.picker?'Workspace saved.':'Workspace downloaded.');
 }
 function nextProjectNumber(){
   let n=1;const codes=new Set(Object.values(workspace.projects).map(p=>String(p.project_code||'').toUpperCase()));while(codes.has(`PROJECT-${String(n).padStart(3,'0')}`))n++;return n;
@@ -277,7 +312,7 @@ function selectProject(projectId){
 function resetCurrentProject(){
   const p=getActiveProject();if(!p)return;
   if(!confirm('Reset all inputs, tracker quantities, bearing rules, and manual parts for the current project?\n\nThis action cannot be undone after saving.'))return;
-  p.inputs=clone(E.DEFAULT_INPUTS);p.tracker_quantities=E.defaultTrackerQuantities();p.bearing_rules={};p.manual_parts=E.defaultManualParts();p.contingency_enabled=false;p.fastener_contingency_percent=0;p.bom_metadata_enabled=true;p.soltrk_version='2.0';p.bom_overrides={};p.equipment_quantity_overrides={};p.analysis_material_filter='ALL';p.analysis_material_prices={};p.selected_logic_pv='';p.selected_sketch_pv='';p.is_dirty=true;selectedBomRows.clear();customRuleSelectedPv=null;uiState.customRule={pv:'14',mode:'Symmetrical',symmetrical_distance:'8320',semi_pair_count:3,asym_post_count:3,semi_pair_gaps:['8320','7350','6500','',''],asym_north_gaps:['8320','7350','6500','',''],asym_south_gaps:['8320','7350','6500','','']};renderAll(true);saveRecovery();
+  p.inputs=clone(E.DEFAULT_INPUTS);p.tracker_quantities=E.defaultTrackerQuantities();p.bearing_rules={};p.manual_parts=E.defaultManualParts();p.contingency_enabled=false;p.fastener_contingency_percent=0;p.bom_metadata_enabled=true;p.soltrk_version='2.0';p.bom_overrides={};p.equipment_quantity_overrides={};p.analysis_material_filter='ALL';p.analysis_material_prices={};p.analysis_item_prices={};p.selected_logic_pv='';p.selected_sketch_pv='';p.is_dirty=true;selectedBomRows.clear();customRuleSelectedPv=null;uiState.analysisPage='home';uiState.customRule={pv:'14',mode:'Symmetrical',symmetrical_distance:'8320',semi_pair_count:3,asym_post_count:3,semi_pair_gaps:['8320','7350','6500','',''],asym_north_gaps:['8320','7350','6500','',''],asym_south_gaps:['8320','7350','6500','','']};renderAll(true);saveRecovery();
 }
 function renderTabs(){
   const tabs=document.getElementById('tabs');if(tabs.children.length===0){
@@ -454,6 +489,9 @@ function makeArrayTable(columns,rows,options={}){
 function wireTableRowClicks(root,rows,handler){
   root.querySelectorAll('tbody tr[data-row-index]').forEach(tr=>tr.addEventListener('click',()=>handler(tr,rows[Number(tr.dataset.rowIndex)])));
 }
+function keepInlineEditorActive(input){
+  input.addEventListener('click',event=>event.stopPropagation());input.addEventListener('dblclick',event=>event.stopPropagation());
+}
 function renderArrayTable(){
   const root=document.getElementById('tabArray');const cols=['PV / Tracker','Number of Trackers','Tracker Type','Span Type','Bearing Rule','PV Gaps / Side','Tracker Length (mm)','Main Beam C','Bearing Posts / Tracker','Bearing 120','Bearing 110','Bearing 100','K001099 / Tracker','Status'];
   const rows=current.schedule.map(r=>{
@@ -465,7 +503,7 @@ function renderArrayTable(){
   const trs=root.querySelectorAll('tbody tr');trs.forEach((tr,index)=>{const cell=tr.cells[1];cell.style.background='#FFF5E4';cell.title='Double-click to edit';cell.addEventListener('dblclick',()=>editArrayQtyCell(cell,current.schedule[index]['PV Modules per Tracker']));});
 }
 function editArrayQtyCell(cell,pv){
-  if(cell.querySelector('input'))return;const p=getActiveProject();const old=p.tracker_quantities[String(pv)]??0;cell.innerHTML=`<input class="qty-input" type="number" min="0" step="1" value="${escapeHtml(old)}">`;const input=cell.querySelector('input');input.focus();input.select();let done=false;
+  if(cell.querySelector('input'))return;const p=getActiveProject();const old=p.tracker_quantities[String(pv)]??0;cell.innerHTML=`<input class="qty-input" type="number" min="0" step="1" value="${escapeHtml(old)}">`;const input=cell.querySelector('input');keepInlineEditorActive(input);input.focus();input.select();let done=false;
   const save=()=>{if(done)return;done=true;let v=Number(input.value);if(!Number.isFinite(v)||v<0)v=0;v=Math.trunc(v);p.tracker_quantities[String(pv)]=v;markDirty();refreshOutputsOnly();};input.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();save();}if(e.key==='Escape'){done=true;renderArrayTable();}});input.addEventListener('blur',save);
 }
 function renderSelectedArrays(){
@@ -492,7 +530,7 @@ function renderBom(){
   root.querySelectorAll('tbody tr').forEach((tr,displayIndex)=>{
     const row=filtered[displayIndex],key=row._bom_key;
     if(selectedBomRows.has(key))tr.classList.add('row-selected');
-    tr.addEventListener('click',e=>{if(e.detail>1)return;if(e.ctrlKey||e.metaKey){selectedBomRows.has(key)?selectedBomRows.delete(key):selectedBomRows.add(key);}else{selectedBomRows.clear();selectedBomRows.add(key);}root.querySelectorAll('tbody tr').forEach((tableRow,index)=>tableRow.classList.toggle('row-selected',selectedBomRows.has(filtered[index]._bom_key)));});
+    tr.addEventListener('click',e=>{if(e.target.closest('input,select,textarea,button')||e.detail>1)return;if(e.ctrlKey||e.metaKey){selectedBomRows.has(key)?selectedBomRows.delete(key):selectedBomRows.add(key);}else{selectedBomRows.clear();selectedBomRows.add(key);}root.querySelectorAll('tbody tr').forEach((tableRow,index)=>tableRow.classList.toggle('row-selected',selectedBomRows.has(filtered[index]._bom_key)));});
     tr.querySelectorAll('td').forEach((td,columnIndex)=>{
       const column=current.bom.columns[columnIndex],editableMetadata=column==='Material'||column==='Weight',editableQuantity=column==='Total Qty'&&!!row._quantity_override_key;
       if(editableMetadata||editableQuantity){td.classList.add('bom-editable-cell');td.title=editableQuantity?'Double-click to set the manual total; clear the value to restore automatic quantity.':'Double-click to edit.';td.addEventListener('dblclick',e=>{e.stopPropagation();editBomCell(td,row,column);});}
@@ -502,24 +540,24 @@ function renderBom(){
 }
 function editBomCell(td,row,column){
   if(td.querySelector('input'))return;const p=getActiveProject(),isQuantity=column==='Total Qty';const old=isQuantity?row['Total Qty']:(row[column]??'');
-  td.innerHTML=`<input class="bom-cell-input" ${isQuantity?'type="number" min="0" step="1"':''} value="${escapeHtml(old)}">`;const input=td.querySelector('input');input.focus();input.select();let done=false;
+  td.innerHTML=`<input class="bom-cell-input" ${isQuantity?'type="number" min="0" step="1"':''} value="${escapeHtml(old)}">`;const input=td.querySelector('input');keepInlineEditorActive(input);input.focus();input.select();let done=false;
   const save=()=>{if(done)return;done=true;if(isQuantity){const key=row._quantity_override_key,value=input.value.trim();p.equipment_quantity_overrides=p.equipment_quantity_overrides||{};if(value==='')delete p.equipment_quantity_overrides[key];else p.equipment_quantity_overrides[key]=Math.max(0,Math.trunc(E.asNumber(value,0)));}else{p.bom_overrides=p.bom_overrides||{};p.bom_overrides[row._bom_key]=p.bom_overrides[row._bom_key]||{};p.bom_overrides[row._bom_key][column]=input.value;}markDirty();refreshOutputsOnly();};
   input.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();save();}else if(e.key==='Escape'){done=true;renderBom();}});input.addEventListener('blur',save);
 }
 function renderPartMaster(){
   const root=document.getElementById('tabPartMaster');const filtered=current.partMasterPreview.filter(r=>rowMatchesSearch(r,uiState.partMasterSearch));
   root.innerHTML=`<div class="part-controls"><label>Part Master List:</label><span class="list-name">${escapeHtml(currentPartMasterListName)}</span><button id="pmSave">Save Part Master As...</button><button id="pmLoad">Load Saved Part Master...</button><button id="pmReset">Reset to Default Part Master</button><button id="pmDelete">Delete Selected Part(s)</button></div><p class="table-subtitle">Double-click Part, TAG, Description, Part Number, or Category to edit. Select one or more rows and click Delete Selected Part(s) to remove them.</p><div class="search-row"><label>Search:</label><input id="pmSearchInput" value="${escapeHtml(uiState.partMasterSearch)}" placeholder="Search Part Master by Part, TAG, Description, Category, calculation note..."><button id="pmSearchBtn">Search</button><button id="pmClearBtn">Clear</button></div>${makeArrayTable(PART_PREVIEW_COLUMNS,filtered)}`;
-  const tableRows=root.querySelectorAll('tbody tr');tableRows.forEach((tr,displayIndex)=>{const row=filtered[displayIndex],idx=row._part_master_index;if(selectedPartMasterRows.has(idx))tr.classList.add('row-selected');tr.addEventListener('click',e=>{if(e.detail>1)return;if(e.ctrlKey||e.metaKey){selectedPartMasterRows.has(idx)?selectedPartMasterRows.delete(idx):selectedPartMasterRows.add(idx);}else{selectedPartMasterRows.clear();selectedPartMasterRows.add(idx);}renderPartMaster();});tr.querySelectorAll('td').forEach((td,ci)=>{const col=PART_PREVIEW_COLUMNS[ci];if(PART_EDITABLE_COLUMNS.has(col))td.addEventListener('dblclick',e=>{e.stopPropagation();editPartMasterCell(td,idx,col);});});});
+  const tableRows=root.querySelectorAll('tbody tr');tableRows.forEach((tr,displayIndex)=>{const row=filtered[displayIndex],idx=row._part_master_index;if(selectedPartMasterRows.has(idx))tr.classList.add('row-selected');tr.addEventListener('click',e=>{if(e.target.closest('input,select,textarea,button')||e.detail>1)return;if(e.ctrlKey||e.metaKey){selectedPartMasterRows.has(idx)?selectedPartMasterRows.delete(idx):selectedPartMasterRows.add(idx);}else{selectedPartMasterRows.clear();selectedPartMasterRows.add(idx);}renderPartMaster();});tr.querySelectorAll('td').forEach((td,ci)=>{const col=PART_PREVIEW_COLUMNS[ci];if(PART_EDITABLE_COLUMNS.has(col))td.addEventListener('dblclick',e=>{e.stopPropagation();editPartMasterCell(td,idx,col);});});});
   const search=()=>{uiState.partMasterSearch=document.getElementById('pmSearchInput').value;renderPartMaster();updateFixedHorizontalScroll();};document.getElementById('pmSearchBtn').addEventListener('click',search);document.getElementById('pmSearchInput').addEventListener('keydown',e=>{if(e.key==='Enter')search();});document.getElementById('pmClearBtn').addEventListener('click',()=>{uiState.partMasterSearch='';renderPartMaster();updateFixedHorizontalScroll();});
   document.getElementById('pmSave').addEventListener('click',savePartMasterAs);document.getElementById('pmLoad').addEventListener('click',()=>document.getElementById('partMasterFileInput').click());document.getElementById('pmReset').addEventListener('click',resetPartMaster);document.getElementById('pmDelete').addEventListener('click',deleteSelectedPartMaster);
 }
 function editPartMasterCell(td,index,column){
-  if(td.querySelector('input'))return;const storage=column==='Part Name'?'Part':column;const record=partMaster[index];const old=record[storage]??'';td.innerHTML=`<input value="${escapeHtml(old)}" style="width:100%;min-width:120px">`;const input=td.querySelector('input');input.focus();input.select();let done=false;
+  if(td.querySelector('input'))return;const storage=column==='Part Name'?'Part':column;const record=partMaster[index];const old=record[storage]??'';td.innerHTML=`<input value="${escapeHtml(old)}" style="width:100%;min-width:120px">`;const input=td.querySelector('input');keepInlineEditorActive(input);input.focus();input.select();let done=false;
   const save=()=>{if(done)return;done=true;record[storage]=input.value;workspaceStructureDirty=true;getActiveProject().is_dirty=true;saveRecovery();recalculate();renderOutputTabsExceptInputs();refreshProjectList();};input.addEventListener('keydown',e=>{if(e.key==='Enter')save();else if(e.key==='Escape'){done=true;renderPartMaster();}});input.addEventListener('blur',save);
 }
 function savePartMasterAs(){
   openModal('Save Part Master As',formRowHtml('Part Master List Name','pmSaveName',currentPartMasterListName==='Default Internal'?'My Part Master':currentPartMasterListName),[
-    {text:'Cancel',onClick:closeModal},{text:'Save',onClick:()=>{const name=document.getElementById('pmSaveName').value.trim();if(!name)return;const payload={name,saved_at:formatDateTime(),columns:[...partMasterColumns],rows:partMaster.map(r=>Object.fromEntries(partMasterColumns.map(c=>[c,r[c]??''])))};downloadBlob(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),`${safeFilename(name)}.json`);currentPartMasterListName=name;workspaceStructureDirty=true;closeModal();renderPartMaster();saveRecovery();showToast('Part Master saved.');}}
+    {text:'Cancel',onClick:closeModal},{text:'Save',onClick:async()=>{const name=document.getElementById('pmSaveName').value.trim();if(!name)return;const payload={name,saved_at:formatDateTime(),columns:[...partMasterColumns],rows:partMaster.map(r=>Object.fromEntries(partMasterColumns.map(c=>[c,r[c]??''])))};const filename=`${safeFilename(name)}.json`;const result=await saveBlobWithLocation(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),filename,'Part Master JSON',{'application/json':['.json']});if(!result.saved)return;currentPartMasterListName=name;workspaceStructureDirty=true;closeModal();renderPartMaster();saveRecovery();showToast(result.picker?'Part Master saved.':'Part Master downloaded.');}}
   ]);
 }
 function resetPartMaster(){if(!confirm('Reset the shared Part Master to the protected internal default list?'))return;partMaster=E.loadInternalPartMaster();partMasterColumns=[...INTERNAL_PART_MASTER_COLUMNS];currentPartMasterListName='Default Internal';selectedPartMasterRows.clear();workspaceStructureDirty=true;Object.values(workspace.projects).forEach(p=>p.is_dirty=true);recalculate();renderAll(false);saveRecovery();}
@@ -590,8 +628,9 @@ function setBe32(view,offset,n){view.setUint32(offset,n>>>0,false);}
 async function addPng300Dpi(blob){
   const bytes=new Uint8Array(await blob.arrayBuffer());if(bytes.length<33)return blob;const type=new TextEncoder().encode('pHYs'),data=new Uint8Array(9),dv=new DataView(data.buffer);dv.setUint32(0,11811,false);dv.setUint32(4,11811,false);data[8]=1;const crcInput=new Uint8Array(13);crcInput.set(type,0);crcInput.set(data,4);const chunk=new Uint8Array(21),cdv=new DataView(chunk.buffer);setBe32(cdv,0,9);chunk.set(type,4);chunk.set(data,8);setBe32(cdv,17,crc32Png(crcInput));const insertAt=33,out=new Uint8Array(bytes.length+chunk.length);out.set(bytes.slice(0,insertAt),0);out.set(chunk,insertAt);out.set(bytes.slice(insertAt),insertAt+chunk.length);return new Blob([out],{type:'image/png'});
 }
-function saveHighResSketch(){
-  const p=getActiveProject(),pv=Number(p.selected_sketch_pv),row=current.schedule.find(r=>Number(r['PV Modules per Tracker'])===pv);if(!row)return;const svg=buildSketchSvg(row,1200,700),blob=new Blob([svg],{type:'image/svg+xml;charset=utf-8'}),url=URL.createObjectURL(blob),img=new Image();img.onload=()=>{const canvas=document.createElement('canvas');canvas.width=3600;canvas.height=2100;const ctx=canvas.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(img,0,0,canvas.width,canvas.height);URL.revokeObjectURL(url);canvas.toBlob(async png=>{const dpi=await addPng300Dpi(png);downloadBlob(dpi,`${safeFilename(p.project_code)}_${safeFilename(p.project_name)}_Tracker_Sketch_${pv}PV.png`);showToast('High-resolution tracker sketch saved.');},'image/png');};img.onerror=()=>{URL.revokeObjectURL(url);showToast('Could not generate the sketch image.');};img.src=url;
+async function saveHighResSketch(){
+  const p=getActiveProject(),pv=Number(p.selected_sketch_pv),row=current.schedule.find(r=>Number(r['PV Modules per Tracker'])===pv);if(!row)return;const filename=`${safeFilename(p.project_code)}_${safeFilename(p.project_name)}_Tracker_Sketch_${pv}PV.png`,location=await chooseSaveLocation(filename,'PNG image',{'image/png':['.png']});if(location.cancelled)return;
+  const svg=buildSketchSvg(row,1200,700),blob=new Blob([svg],{type:'image/svg+xml;charset=utf-8'}),url=URL.createObjectURL(blob),img=new Image();img.onload=()=>{const canvas=document.createElement('canvas');canvas.width=3600;canvas.height=2100;const ctx=canvas.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(img,0,0,canvas.width,canvas.height);URL.revokeObjectURL(url);canvas.toBlob(async png=>{if(!png){showToast('Could not generate the sketch image.');return;}const dpi=await addPng300Dpi(png),result=await writeBlobToSaveLocation(dpi,filename,location);if(result.saved)showToast(result.picker?'High-resolution tracker sketch saved.':'High-resolution tracker sketch downloaded.');},'image/png');};img.onerror=()=>{URL.revokeObjectURL(url);showToast('Could not generate the sketch image.');};img.src=url;
 }
 
 function formatAnalysisNumber(value,maxDigits=2){
@@ -621,7 +660,9 @@ function buildSteelAnalysisData(){
   const filteredRows=selectedMaterial==='ALL'?mappedRows:mappedRows.filter(item=>item.material===selectedMaterial);
   const sumWeight=rows=>rows.reduce((sum,item)=>sum+(item.totalWeight??0),0);
   const materialWeights={};for(const item of mappedRows)if(item.material)materialWeights[item.material]=(materialWeights[item.material]||0)+(item.totalWeight??0);
+  const allCostByCurrency={};for(const item of mappedRows)if(item.calculatedCost!==null){const currency=item.priceRecord.currency;allCostByCurrency[currency]=(allCostByCurrency[currency]||0)+item.calculatedCost;}
   const costByCurrency={};for(const item of filteredRows)if(item.calculatedCost!==null){const currency=item.priceRecord.currency;costByCurrency[currency]=(costByCurrency[currency]||0)+item.calculatedCost;}
+  const allUnpricedMaterials=[...new Set(mappedRows.filter(item=>item.totalWeight>0&&item.material&&!item.priceRecord).map(item=>item.material))].sort((a,b)=>a.localeCompare(b));
   const unpricedMaterials=[...new Set(filteredRows.filter(item=>item.totalWeight>0&&item.material&&!item.priceRecord).map(item=>item.material))].sort((a,b)=>a.localeCompare(b));
   const tableRows=filteredRows.map(item=>({
     'Part Name':item.source['Part Name']??item.source.Part??'',
@@ -640,14 +681,21 @@ function buildSteelAnalysisData(){
   });
   const totalPowerKw=Math.max(0,E.asNumber(current?.kpis?.totalPower,0)*1000);
   return {
-    materials,selectedMaterial,tableRows,priceRecords,registeredPriceRows,costByCurrency,unpricedMaterials,
+    materials,selectedMaterial,tableRows,priceRecords,registeredPriceRows,costByCurrency,allCostByCurrency,unpricedMaterials,allUnpricedMaterials,
     totalSteelWeight:sumWeight(mappedRows),
     filteredWeight:sumWeight(filteredRows),
     missingWeightCount:filteredRows.filter(item=>item.quantity>0&&item.unitWeight===null).length,
+    allMissingWeightCount:mappedRows.filter(item=>item.quantity>0&&item.unitWeight===null).length,
     kgPerKw:totalPowerKw>0?sumWeight(mappedRows)/totalPowerKw:0,
   };
 }
-function renderAnalysis(){
+function analysisBackButtonHtml(){
+  return `<button id="analysisBackBtn" class="analysis-back-button" type="button" aria-label="Back to Analysis home" title="Back"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 18l-6-6 6-6" /></svg></button>`;
+}
+function wireAnalysisBackButton(){
+  document.getElementById('analysisBackBtn')?.addEventListener('click',()=>{uiState.analysisPage='home';renderAnalysis();requestAnimationFrame(updateFixedHorizontalScroll);});
+}
+function renderSteelAnalysis(){
   const root=document.getElementById('tabAnalysis'),p=getActiveProject();if(!root||!p)return;
   const data=buildSteelAnalysisData();
   if(p.analysis_material_filter!==data.selectedMaterial)p.analysis_material_filter=data.selectedMaterial;
@@ -661,6 +709,7 @@ function renderAnalysis(){
   const warnings=[];if(data.missingWeightCount)warnings.push(`${data.missingWeightCount} filtered steel-structure item(s) have no valid unit weight and are excluded from weight and cost totals.`);if(data.unpricedMaterials.length)warnings.push(`No price registered for: ${data.unpricedMaterials.join(', ')}. These materials are excluded from cost totals.`);
   const warningHtml=warnings.length?`<div class="analysis-warning">${warnings.map(message=>`<div>${escapeHtml(message)}</div>`).join('')}</div>`:'';
   root.innerHTML=`<div class="analysis-title-row"><div><h2 class="table-title">Steel Structure Weight and Cost Analysis</h2><p class="table-subtitle">Weight is calculated from Project BOM steel-structure rows: Unit Weight × Total Qty.</p></div><div class="analysis-ratio"><span>kg / kW</span><strong>${formatAnalysisFixed(data.kgPerKw,2)} kg/kW</strong></div></div><div class="analysis-controls analysis-filter-controls"><label for="analysisMaterial">Filter steel structure by material<select id="analysisMaterial"><option value="ALL" ${data.selectedMaterial==='ALL'?'selected':''}>All materials</option>${data.materials.map(material=>`<option value="${escapeHtml(material)}" ${material===data.selectedMaterial?'selected':''}>${escapeHtml(material)}</option>`).join('')}</select></label></div><div class="analysis-summary"><div class="analysis-card"><span>Total Steel Structure Weight</span><strong>${formatAnalysisNumber(data.totalSteelWeight,2)} kg</strong></div><div class="analysis-card"><span>Filtered Weight — ${escapeHtml(filterLabel)}</span><strong>${formatAnalysisNumber(data.filteredWeight,2)} kg</strong></div><div class="analysis-card"><span>Registered Price</span><strong>${escapeHtml(selectedPrice)}</strong></div><div class="analysis-card analysis-cost-card"><span>Total Cost</span><strong class="analysis-cost-lines">${totalCostHtml}</strong></div></div>${warningHtml}<h2 class="table-title analysis-detail-title">Material Price Register</h2><p class="table-subtitle">Select a material to add a price. Select an existing registration to update or delete it.</p><div class="analysis-controls analysis-price-controls"><label for="analysisPriceMaterial">Material<select id="analysisPriceMaterial"><option value="">Select material</option>${priceMaterials.map(material=>`<option value="${escapeHtml(material)}" ${material===editorMaterial?'selected':''}>${escapeHtml(material)}</option>`).join('')}</select></label><label for="analysisPrice">Price / kg<input id="analysisPrice" type="number" min="0" step="any" value="${editorRecord?escapeHtml(editorRecord.price_per_kg):''}" placeholder="Enter price per kg"></label><label for="analysisCurrency">Currency<select id="analysisCurrency">${ANALYSIS_CURRENCIES.map(([code,label])=>`<option value="${code}" ${code===(editorRecord?.currency||'USD')?'selected':''}>${escapeHtml(label)}</option>`).join('')}</select></label><div class="analysis-price-actions"><button id="analysisPriceAdd" ${!editorMaterial||editorRecord?'disabled':''}>Add</button><button id="analysisPriceUpdate" ${!editorRecord?'disabled':''}>Update</button><button id="analysisPriceDelete" class="danger" ${!editorRecord?'disabled':''}>Delete</button></div></div><div id="analysisPriceRegistry">${makeArrayTable(['Material','Price / kg','Currency','Current Weight (kg)','Current Estimated Cost'],data.registeredPriceRows)}</div><h2 class="table-title analysis-detail-title">Filtered Steel Structure Details</h2>${makeArrayTable(['Part Name','TAG','Material','Unit Weight (kg)','Total Qty','Total Weight (kg)','Registered Price / kg','Currency','Calculated Cost'],data.tableRows)}`;
+  root.insertAdjacentHTML('afterbegin',`<div class="analysis-subpage-nav">${analysisBackButtonHtml()}</div>`);
   document.getElementById('analysisMaterial').addEventListener('change',e=>{p.analysis_material_filter=e.target.value;markDirty();renderAnalysis();requestAnimationFrame(updateFixedHorizontalScroll);});
   document.getElementById('analysisPriceMaterial').addEventListener('change',e=>{uiState.analysisPriceEditor[p.project_id]=e.target.value;renderAnalysis();});
   const readEditor=()=>{const material=document.getElementById('analysisPriceMaterial').value,rawPrice=document.getElementById('analysisPrice').value.trim(),price=Number(rawPrice),currency=document.getElementById('analysisCurrency').value;if(!material){showToast('Select a material first.');return null;}if(rawPrice===''||!Number.isFinite(price)||price<0){showToast('Enter a valid price per kg.');return null;}return {material,price_per_kg:price,currency:isAnalysisCurrency(currency)?currency:'USD'};};
@@ -668,6 +717,127 @@ function renderAnalysis(){
   document.getElementById('analysisPriceUpdate').addEventListener('click',()=>{const record=readEditor();if(!record||!p.analysis_material_prices[record.material])return;p.analysis_material_prices[record.material]=record;markDirty();renderAnalysis();showToast(`Price updated for ${record.material}.`);});
   document.getElementById('analysisPriceDelete').addEventListener('click',()=>{const material=document.getElementById('analysisPriceMaterial').value;if(!material||!p.analysis_material_prices[material])return;if(!confirm(`Delete the registered price for ${material}?`))return;delete p.analysis_material_prices[material];markDirty();renderAnalysis();showToast(`Price deleted for ${material}.`);});
   root.querySelectorAll('#analysisPriceRegistry tbody tr').forEach((row,index)=>{const material=data.registeredPriceRows[index]?.Material;if(material===editorMaterial)row.classList.add('row-selected');row.addEventListener('click',()=>{uiState.analysisPriceEditor[p.project_id]=material;renderAnalysis();});});
+  wireAnalysisBackButton();
+}
+
+const ANALYSIS_ITEM_PAGE_CONFIG=Object.freeze({
+  electrical:{title:'Electrical Cost',subtitle:'Unit-price analysis for electrical and control-system items in the Project BOM.'},
+  major:{title:'Major Components Cost',subtitle:'Unit-price analysis for Bearings, Slew Drives, and PV Modules.'},
+  fasteners:{title:'Fasteners Cost',subtitle:'Unit-price analysis for all Project BOM fasteners, including the selected contingency.'},
+});
+function analysisCategoryMatches(page,row){
+  const category=E.normalizeText(row?.Category);
+  if(page==='electrical')return category.includes('electrical');
+  if(page==='major')return !category.includes('fastener')&&(category.startsWith('bearings')||category.startsWith('slewdrive')||category.startsWith('pvmodule'));
+  if(page==='fasteners')return category.includes('fastener');
+  return false;
+}
+function analysisItemKey(row){
+  return String(row?._bom_key||`item:${E.normalizeText(row?.TAG||row?.['Part Name']||row?.Part||row?.Description)}`);
+}
+function mergeAnalysisCurrencyTotals(target,source){
+  for(const [currency,value] of Object.entries(source||{}))target[currency]=(target[currency]||0)+E.asNumber(value,0);return target;
+}
+function analysisCurrencyText(totals,empty='0.00'){
+  const entries=Object.entries(totals||{}).filter(([,value])=>Number.isFinite(Number(value))&&Number(value)!==0).sort(([a],[b])=>a.localeCompare(b));
+  return entries.length?entries.map(([currency,value])=>`${formatAnalysisFixed(value,2)} ${currency}`).join(' | '):empty;
+}
+function analysisCurrencyHtml(totals,empty='0.00'){
+  const entries=Object.entries(totals||{}).filter(([,value])=>Number.isFinite(Number(value))&&Number(value)!==0).sort(([a],[b])=>a.localeCompare(b));
+  return entries.length?entries.map(([currency,value])=>`<span>${formatAnalysisFixed(value,2)} ${escapeHtml(currency)}</span>`).join(''):`<span>${escapeHtml(empty)}</span>`;
+}
+function buildItemCostData(page){
+  const p=getActiveProject(),priceRecords=normalizeAnalysisItemPrices(p?.analysis_item_prices),sourceRows=(current?.bom?.rows||[]).filter(row=>analysisCategoryMatches(page,row));
+  const mappedRows=sourceRows.map(row=>{
+    const key=analysisItemKey(row),quantity=Math.max(0,E.asNumber(row['Total Qty'],0)),priceRecord=priceRecords[key]||null,calculatedCost=priceRecord?quantity*priceRecord.price_per_unit:null;
+    return {key,source:row,quantity,priceRecord,calculatedCost,label:String(row['Part Name']??row.Part??row.Description??key)};
+  });
+  const costByCurrency={};for(const item of mappedRows)if(item.calculatedCost!==null){const currency=item.priceRecord.currency;costByCurrency[currency]=(costByCurrency[currency]||0)+item.calculatedCost;}
+  const tableRows=mappedRows.map(item=>({'Part Name':item.label,'TAG':item.source.TAG??'','Category':item.source.Category??'','Unit':item.source.Unit??'','Total Qty':formatAnalysisNumber(item.quantity,3),'Price / Unit':item.priceRecord?formatAnalysisNumber(item.priceRecord.price_per_unit,4):'Not registered','Currency':item.priceRecord?.currency||'','Calculated Cost':item.calculatedCost===null?'Not calculated':formatAnalysisFixed(item.calculatedCost,2)}));
+  const registeredItems=mappedRows.filter(item=>item.priceRecord);
+  const registeredPriceRows=registeredItems.map(item=>({'Part Name':item.label,'TAG':item.source.TAG??'','Price / Unit':formatAnalysisNumber(item.priceRecord.price_per_unit,4),'Currency':item.priceRecord.currency,'Current Qty':formatAnalysisNumber(item.quantity,3),'Current Cost':`${formatAnalysisFixed(item.calculatedCost,2)} ${item.priceRecord.currency}`}));
+  return {mappedRows,tableRows,registeredItems,registeredPriceRows,costByCurrency,pricedCount:registeredItems.filter(item=>item.quantity>0).length,unpricedCount:mappedRows.filter(item=>item.quantity>0&&!item.priceRecord).length};
+}
+function renderItemCostAnalysis(page){
+  const root=document.getElementById('tabAnalysis'),p=getActiveProject(),config=ANALYSIS_ITEM_PAGE_CONFIG[page],data=buildItemCostData(page);if(!root||!p||!config)return;
+  const editorByPage=uiState.analysisItemPriceEditor[p.project_id]||(uiState.analysisItemPriceEditor[p.project_id]={});let editorKey=String(editorByPage[page]||'');if(!data.mappedRows.some(item=>item.key===editorKey))editorKey='';
+  const editorItem=data.mappedRows.find(item=>item.key===editorKey)||null,editorRecord=editorItem?.priceRecord||null;
+  const options=data.mappedRows.map(item=>`<option value="${escapeHtml(item.key)}" ${item.key===editorKey?'selected':''}>${escapeHtml(item.label)}${item.source.TAG?` — ${escapeHtml(item.source.TAG)}`:''}</option>`).join('');
+  const warningHtml=data.unpricedCount?`<div class="analysis-warning">${data.unpricedCount} item(s) with a positive quantity have no unit price and are excluded from the cost total.</div>`:'';
+  root.innerHTML=`<div class="analysis-subpage-nav">${analysisBackButtonHtml()}</div><div class="analysis-title-row"><div><h2 class="table-title">${escapeHtml(config.title)}</h2><p class="table-subtitle">${escapeHtml(config.subtitle)}</p></div></div><div class="analysis-summary"><div class="analysis-card"><span>Items in Current BOM</span><strong>${data.mappedRows.length}</strong></div><div class="analysis-card"><span>Priced Items</span><strong>${data.pricedCount}</strong></div><div class="analysis-card"><span>Unpriced Items</span><strong>${data.unpricedCount}</strong></div><div class="analysis-card analysis-cost-card"><span>Total Cost</span><strong class="analysis-cost-lines">${analysisCurrencyHtml(data.costByCurrency)}</strong></div></div>${warningHtml}<h2 class="table-title analysis-detail-title">Unit Price Register</h2><p class="table-subtitle">Select a current BOM item to add or update its unit price.</p><div class="analysis-controls analysis-price-controls"><label for="analysisItemPricePart">BOM Item<select id="analysisItemPricePart"><option value="">Select item</option>${options}</select></label><label for="analysisItemUnitPrice">Price / Unit<input id="analysisItemUnitPrice" type="number" min="0" step="any" value="${editorRecord?escapeHtml(editorRecord.price_per_unit):''}" placeholder="Enter price per unit"></label><label for="analysisItemCurrency">Currency<select id="analysisItemCurrency">${ANALYSIS_CURRENCIES.map(([code,label])=>`<option value="${code}" ${code===(editorRecord?.currency||'USD')?'selected':''}>${escapeHtml(label)}</option>`).join('')}</select></label><div class="analysis-price-actions"><button id="analysisItemPriceAdd" ${!editorItem||editorRecord?'disabled':''}>Add</button><button id="analysisItemPriceUpdate" ${!editorRecord?'disabled':''}>Update</button><button id="analysisItemPriceDelete" class="danger" ${!editorRecord?'disabled':''}>Delete</button></div></div><div id="analysisItemPriceRegistry">${makeArrayTable(['Part Name','TAG','Price / Unit','Currency','Current Qty','Current Cost'],data.registeredPriceRows)}</div><h2 class="table-title analysis-detail-title">${escapeHtml(config.title)} Details</h2>${makeArrayTable(['Part Name','TAG','Category','Unit','Total Qty','Price / Unit','Currency','Calculated Cost'],data.tableRows)}`;
+  wireAnalysisBackButton();
+  document.getElementById('analysisItemPricePart').addEventListener('change',e=>{editorByPage[page]=e.target.value;renderAnalysis();});
+  const readEditor=()=>{const key=document.getElementById('analysisItemPricePart').value,rawPrice=document.getElementById('analysisItemUnitPrice').value.trim(),price=Number(rawPrice),currency=document.getElementById('analysisItemCurrency').value;if(!key){showToast('Select a BOM item first.');return null;}if(rawPrice===''||!Number.isFinite(price)||price<0){showToast('Enter a valid unit price.');return null;}return {key,record:{price_per_unit:price,currency:isAnalysisCurrency(currency)?currency:'USD'}};};
+  document.getElementById('analysisItemPriceAdd').addEventListener('click',()=>{const value=readEditor();if(!value)return;p.analysis_item_prices=p.analysis_item_prices||{};if(p.analysis_item_prices[value.key]){showToast('This item already has a registered price. Use Update.');return;}p.analysis_item_prices[value.key]=value.record;markDirty();renderAnalysis();showToast('Unit price added.');});
+  document.getElementById('analysisItemPriceUpdate').addEventListener('click',()=>{const value=readEditor();if(!value)return;p.analysis_item_prices=p.analysis_item_prices||{};p.analysis_item_prices[value.key]=value.record;markDirty();renderAnalysis();showToast('Unit price updated.');});
+  document.getElementById('analysisItemPriceDelete').addEventListener('click',()=>{const key=document.getElementById('analysisItemPricePart').value;if(!key||!p.analysis_item_prices?.[key])return;if(!confirm('Delete the registered unit price for this item?'))return;delete p.analysis_item_prices[key];markDirty();renderAnalysis();showToast('Unit price deleted.');});
+  root.querySelectorAll('#analysisItemPriceRegistry tbody tr').forEach((row,index)=>{const item=data.registeredItems[index];if(item?.key===editorKey)row.classList.add('row-selected');row.addEventListener('click',()=>{editorByPage[page]=item.key;renderAnalysis();});});
+}
+function buildTotalCostData(){
+  const steel=buildSteelAnalysisData(),electrical=buildItemCostData('electrical'),major=buildItemCostData('major'),fasteners=buildItemCostData('fasteners');
+  const sections=[
+    {name:'Steel Structure',totals:steel.allCostByCurrency,status:`${steel.allUnpricedMaterials.length} unpriced material(s); ${steel.allMissingWeightCount} item(s) missing weight`},
+    {name:'Electrical',totals:electrical.costByCurrency,status:`${electrical.pricedCount} priced / ${electrical.unpricedCount} unpriced`},
+    {name:'Major Components',totals:major.costByCurrency,status:`${major.pricedCount} priced / ${major.unpricedCount} unpriced`},
+    {name:'Fasteners',totals:fasteners.costByCurrency,status:`${fasteners.pricedCount} priced / ${fasteners.unpricedCount} unpriced`},
+  ];
+  const grandTotals={};sections.forEach(section=>mergeAnalysisCurrencyTotals(grandTotals,section.totals));
+  const gapCount=steel.allUnpricedMaterials.length+steel.allMissingWeightCount+electrical.unpricedCount+major.unpricedCount+fasteners.unpricedCount;
+  return {sections,grandTotals,gapCount,rows:sections.map(section=>({Category:section.name,'Estimated Cost':analysisCurrencyText(section.totals),'Pricing Status':section.status}))};
+}
+function renderTotalCostAnalysis(){
+  const root=document.getElementById('tabAnalysis'),data=buildTotalCostData();if(!root)return;const currencies=Object.keys(data.grandTotals).length;
+  const warningHtml=data.gapCount?`<div class="analysis-warning">${data.gapCount} pricing or weight data gap(s) remain. Total Cost includes only rows with enough information to calculate a cost.</div>`:'';
+  root.innerHTML=`<div class="analysis-subpage-nav">${analysisBackButtonHtml()}</div><div class="analysis-title-row"><div><h2 class="table-title">Total Project Cost</h2><p class="table-subtitle">Combined Steel Structure, Electrical, Major Components, and Fasteners costs for the active project.</p></div></div><div class="analysis-summary analysis-total-summary"><div class="analysis-card analysis-cost-card"><span>Calculated Project Total</span><strong class="analysis-cost-lines">${analysisCurrencyHtml(data.grandTotals)}</strong></div><div class="analysis-card"><span>Cost Categories</span><strong>${data.sections.length}</strong></div><div class="analysis-card"><span>Currencies in Total</span><strong>${currencies}</strong></div><div class="analysis-card"><span>Data Gaps</span><strong>${data.gapCount}</strong></div></div>${warningHtml}<h2 class="table-title analysis-detail-title">Cost Breakdown</h2><p class="table-subtitle">Different currencies are shown separately and are never added together without an exchange rate.</p>${makeArrayTable(['Category','Estimated Cost','Pricing Status'],data.rows)}`;
+  wireAnalysisBackButton();
+}
+function analysisFindPackagePart(item){
+  const candidates=[...(current?.bom?.rows||[]),...(partMaster||[])],tag=E.normalizeText(item.tag),match=E.normalizeText(item.match||item.label||item.tag);
+  let source=tag?candidates.find(row=>E.normalizeText(row.TAG)===tag):null;if(!source&&match)source=candidates.find(row=>E.normalizeText([row['Part Name']??row.Part,row.TAG,row.Description,row['Part Number']].join(' ')).includes(match));
+  return {name:String(source?.['Part Name']??source?.Part??item.label??item.tag??'Fastener'),tag:String(source?.TAG??item.tag??''),description:String(source?.Description??'')};
+}
+function buildFastenerPackagingData(){
+  const active=current?.active||[],totalTrackers=active.reduce((sum,row)=>sum+E.asInt(row['Number of Trackers']),0),bearingPackages=active.reduce((sum,row)=>sum+E.asInt(row['Bearing Posts / Tracker'])*E.asInt(row['Number of Trackers']),0),hatRailPackages=active.reduce((sum,row)=>sum+Math.max(E.asInt(row['PV Modules per Tracker'])-2,0)*E.asInt(row['Number of Trackers']),0),zRailPackages=4*totalTrackers;
+  const definitions=[
+    {title:'Slew Drive Seat to Main Post',basis:'One package per tracker',packages:totalTrackers,items:[['k001164',8],['k001010',8],['k001154',16],['k001163',8]]},
+    {title:'Slew Drive to Slew Drive Seat',basis:'One package per tracker',packages:totalTrackers,items:[['k001231',4],['k001228',4],['k001238',4],['k001230',4],[null,2,'din7967m18','DIN 7967 - M18'],[null,2,'din936iso4035m18','DIN 936 ISO 4035 - M18'],['k001239',4]]},
+    {title:'Bearing Adapter to Bearing Post',basis:'One package per bearing adapter',packages:bearingPackages,items:[['k001125',4],['k001124',4],['k001130',4],['k001123',4]]},
+    {title:'Bearing to Bearing Adapter',basis:'One package per bearing',packages:bearingPackages,items:[['k001129',2],['k001137',2]]},
+    {title:'Main Beam to Slew Drive',basis:'One package per tracker',packages:totalTrackers,items:[['k001385',16],['k001127',22],['k001166',16]]},
+    {title:'Main Beam to Main Beam',basis:'One package per tracker',packages:totalTrackers,items:[['k001388',16],['k001157',32],['k001013',16],['k001479',32]]},
+    {title:'Hat Rail to Main Beam',basis:'One package per Hat rail',packages:hatRailPackages,items:[['k001576',2],['k001575',2],['k001074',2]]},
+    {title:'Z Rail to Main Beam',basis:'One package per Z rail',packages:zRailPackages,items:[['k001151',2],['k001235',2],['k001074',2]]},
+  ];
+  return definitions.map(definition=>{const rows=definition.items.map(([tag,qty,match,label])=>{const part=analysisFindPackagePart({tag,match,label});return {'Part Name':part.name,'TAG':part.tag,'Description':part.description,'Qty / Package':qty,'Packages':definition.packages,'Required Qty':qty*definition.packages};});return {...definition,rows};});
+}
+function renderFastenerPackaging(){
+  const root=document.getElementById('tabAnalysis'),sections=buildFastenerPackagingData();if(!root)return;const totalPackages=sections.reduce((sum,section)=>sum+section.packages,0);
+  root.innerHTML=`<div class="analysis-subpage-nav">${analysisBackButtonHtml()}</div><div class="analysis-title-row"><div><h2 class="table-title">Fastener Packaging</h2><p class="table-subtitle">Installation kits grouped by connection point. Quantities are derived from the active project configuration.</p></div></div><div class="analysis-summary"><div class="analysis-card"><span>Installation Sections</span><strong>${sections.length}</strong></div><div class="analysis-card"><span>Total Section Packages</span><strong>${formatAnalysisNumber(totalPackages,0)}</strong></div><div class="analysis-card analysis-packaging-note"><span>Contingency Handling</span><strong>Project BOM</strong></div></div><div class="analysis-warning analysis-info">Packaging shows installation-required quantities. Any fastener contingency remains visible in the Project BOM and is not divided into installation packages.</div><div class="analysis-package-grid">${sections.map((section,index)=>`<section class="analysis-package-section"><div class="analysis-package-header"><div><span>Installation Section ${index+1}</span><h3>${escapeHtml(section.title)}</h3><p>${escapeHtml(section.basis)}</p></div><strong>${formatAnalysisNumber(section.packages,0)} package(s)</strong></div>${makeArrayTable(['Part Name','TAG','Description','Qty / Package','Packages','Required Qty'],section.rows)}</section>`).join('')}</div>`;
+  wireAnalysisBackButton();
+}
+function analysisHomeIcon(page){
+  const paths={steel:'<path d="M4 6h16M6 6v12m12-12v12M4 18h16M8 10h8m-8 4h8"/>',electrical:'<path d="m13 2-7 12h6l-1 8 7-12h-6l1-8Z"/>',major:'<circle cx="12" cy="12" r="4"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M19 5l-2 2M7 17l-2 2"/>',fasteners:'<path d="m8 3 3 3-5 5-3-3 5-5Zm8 10 5 5-3 3-5-5m-5-5 5 5m-2-8 5 5"/>',total:'<path d="M6 5h12M8 9l-3 3 3 3m8-6 3 3-3 3M6 19h12"/>',packaging:'<path d="m3 7 9-4 9 4-9 4-9-4Zm0 0v10l9 4 9-4V7m-9 4v10"/>'};
+  return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[page]||paths.total}</svg>`;
+}
+function analysisHomeSummary(totals,hasGaps=false){
+  const text=analysisCurrencyText(totals,'');return text|| (hasGaps?'Prices required':'0.00');
+}
+function renderAnalysisHome(){
+  const root=document.getElementById('tabAnalysis');if(!root)return;const steel=buildSteelAnalysisData(),electrical=buildItemCostData('electrical'),major=buildItemCostData('major'),fasteners=buildItemCostData('fasteners'),total=buildTotalCostData(),packages=buildFastenerPackagingData();
+  const cards=[
+    {page:'steel',title:'Steel Structure Cost',description:'Weight, material prices, and kg/kW.',summary:analysisHomeSummary(steel.allCostByCurrency,steel.allUnpricedMaterials.length>0||steel.allMissingWeightCount>0)},
+    {page:'electrical',title:'Electrical Cost',description:'Electrical and control-system equipment.',summary:analysisHomeSummary(electrical.costByCurrency,electrical.unpricedCount>0)},
+    {page:'major',title:'Major Components Cost',description:'Bearings, Slew Drives, and PV Modules.',summary:analysisHomeSummary(major.costByCurrency,major.unpricedCount>0)},
+    {page:'fasteners',title:'Fasteners Cost',description:'All fasteners with BOM contingency.',summary:analysisHomeSummary(fasteners.costByCurrency,fasteners.unpricedCount>0)},
+    {page:'total',title:'Total Project Cost',description:'Combined cost breakdown by currency.',summary:analysisHomeSummary(total.grandTotals,total.gapCount>0)},
+    {page:'packaging',title:'Fastener Packaging',description:'Installation kits for eight connection sections.',summary:`${packages.length} installation sections`},
+  ];
+  root.innerHTML=`<div class="analysis-home-header"><h2 class="table-title">Project Cost Analysis</h2><p class="table-subtitle">Choose an analysis area for the active project.</p></div><div class="analysis-home-grid">${cards.map(card=>`<button class="analysis-home-card" type="button" data-analysis-page="${card.page}"><span class="analysis-home-icon">${analysisHomeIcon(card.page)}</span><span class="analysis-home-copy"><strong>${escapeHtml(card.title)}</strong><span>${escapeHtml(card.description)}</span><em>${escapeHtml(card.summary)}</em></span><span class="analysis-home-arrow" aria-hidden="true">›</span></button>`).join('')}</div>`;
+  root.querySelectorAll('[data-analysis-page]').forEach(button=>button.addEventListener('click',()=>{uiState.analysisPage=button.dataset.analysisPage;renderAnalysis();requestAnimationFrame(updateFixedHorizontalScroll);}));
+}
+function renderAnalysis(){
+  const page=String(uiState.analysisPage||'home');
+  if(page==='steel')renderSteelAnalysis();else if(ANALYSIS_ITEM_PAGE_CONFIG[page])renderItemCostAnalysis(page);else if(page==='total')renderTotalCostAnalysis();else if(page==='packaging')renderFastenerPackaging();else{uiState.analysisPage='home';renderAnalysisHome();}
 }
 
 function projectSummaryRows(p,calc){
@@ -680,13 +850,22 @@ function customBearingExportRows(p,calc){
   }
   const rows=[['Array Type','Mode','Max Span Length (mm)','Tracker Length (mm)','Tracker Type','Bearing Posts']];for(const r of calc.schedule)rows.push([`${r['PV Modules per Tracker']}-PV`,'Symmetrical',E.niceNumber(E.asNumber(p.inputs.max_span_length,7900)),E.niceNumber(r['Tracker Length (mm)']),r['Span Type'],r['Bearing Posts / Tracker']]);return rows;
 }
-function exportProject(p){
-  const calc=E.calculateProject(p,partMaster,partMasterColumns);const arrays=[SELECTED_ARRAY_COLUMNS,...calc.active.map(r=>SELECTED_ARRAY_COLUMNS.map(c=>r[c]??''))];const bomColumns=calc.bom.columns.filter(c=>!['note','notes','calculationnote'].includes(E.normalizeText(c)));const bom=[bomColumns,...calc.bom.rows.map(r=>bomColumns.map(c=>r[c]??''))];const sheets=[{name:'Project Summary',rows:projectSummaryRows(p,calc)},{name:'Inputs',rows:inputExportRows(p)},{name:'Custom Bearing Rules',rows:customBearingExportRows(p,calc)},{name:'Selected Arrays',rows:arrays},{name:'Project BOM',rows:bom}];const blob=XlsxLite.createWorkbookBlob(sheets);downloadBlob(blob,`${safeFilename(p.project_code)}_${safeFilename(p.project_name)}_LUMA_Complete_BOM.xlsx`);
+function buildProjectExport(p){
+  const calc=E.calculateProject(p,partMaster,partMasterColumns);const arrays=[SELECTED_ARRAY_COLUMNS,...calc.active.map(r=>SELECTED_ARRAY_COLUMNS.map(c=>r[c]??''))];const bomColumns=calc.bom.columns.filter(c=>!['note','notes','calculationnote'].includes(E.normalizeText(c)));const bom=[bomColumns,...calc.bom.rows.map(r=>bomColumns.map(c=>r[c]??''))];const sheets=[{name:'Project Summary',rows:projectSummaryRows(p,calc)},{name:'Inputs',rows:inputExportRows(p)},{name:'Custom Bearing Rules',rows:customBearingExportRows(p,calc)},{name:'Selected Arrays',rows:arrays},{name:'Project BOM',rows:bom}];return {blob:XlsxLite.createWorkbookBlob(sheets),filename:`${safeFilename(p.project_code)}_${safeFilename(p.project_name)}_LUMA_Complete_BOM.xlsx`};
 }
-function exportActive(){const p=getActiveProject();if(p){exportProject(p);showToast('Active project Excel BOM exported.');}}
+async function exportProject(p,directoryHandle=null){
+  const file=buildProjectExport(p);if(directoryHandle){await saveBlobToDirectory(file.blob,file.filename,directoryHandle);return {saved:true,picker:true};}
+  return saveBlobWithLocation(file.blob,file.filename,'Excel workbook',{'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':['.xlsx']});
+}
+async function exportActive(){const p=getActiveProject();if(!p)return;const result=await exportProject(p);if(result.saved)showToast(result.picker?'Excel BOM saved.':'Excel BOM downloaded.');}
 function exportAllDialog(){
   const projects=Object.values(workspace.projects);const html=`<p>Select the projects to export. One Excel workbook will be downloaded for each selected project.</p><div class="project-check-list">${projects.map(p=>`<label><input type="checkbox" data-export-project="${escapeHtml(p.project_id)}" checked> ${escapeHtml(p.project_code)} — ${escapeHtml(p.project_name)}</label>`).join('')}</div>`;
-  openModal('Export Projects',html,[{text:'Cancel',onClick:closeModal},{text:'Export Selected',className:'export',onClick:()=>{const ids=[...document.querySelectorAll('[data-export-project]:checked')].map(x=>x.dataset.exportProject);if(!ids.length){showToast('Select at least one project.');return;}closeModal();ids.forEach((id,index)=>setTimeout(()=>exportProject(workspace.projects[id]),index*350));showToast(`${ids.length} project workbook(s) prepared.`);}}]);
+  openModal('Export Projects',html,[{text:'Cancel',onClick:closeModal},{text:'Export Selected',className:'export',onClick:async()=>{const ids=[...document.querySelectorAll('[data-export-project]:checked')].map(x=>x.dataset.exportProject);if(!ids.length){showToast('Select at least one project.');return;}closeModal();
+    if(typeof window.showDirectoryPicker==='function'){
+      try{const directory=await window.showDirectoryPicker({mode:'readwrite'});for(const id of ids)await exportProject(workspace.projects[id],directory);showToast(`${ids.length} Excel workbook(s) saved.`);return;}catch(err){if(err?.name==='AbortError')return;console.warn('The folder picker is unavailable; using browser downloads instead.',err);}
+    }
+    ids.forEach((id,index)=>setTimeout(()=>{const file=buildProjectExport(workspace.projects[id]);downloadBlob(file.blob,file.filename);},index*350));showToast(`${ids.length} Excel workbook(s) downloaded.`);
+  }}]);
 }
 function showChangelog(){
   const versions=Object.keys(CHANGELOG);const latest=versions[versions.length-1];const html=`<div class="modal-form-row"><label>Version:</label><select id="changelogVersion">${versions.map(v=>`<option ${v===latest?'selected':''}>${v}</option>`).join('')}</select></div><div id="changelogDate" style="margin-bottom:8px"></div><div id="changelogText" class="changelog-text"></div>`;openModal(`${APP_NAME} Changelog`,html,[{text:'Close',onClick:closeModal}]);const refresh=()=>{const v=document.getElementById('changelogVersion').value;document.getElementById('changelogDate').textContent=`Date: ${CHANGELOG_DATES[v]||''}`;document.getElementById('changelogText').textContent=`Version ${v}\n${'='.repeat(40)}\n\n${(CHANGELOG[v]||[]).map(x=>`• ${x}`).join('\n')}`;};document.getElementById('changelogVersion').addEventListener('change',refresh);refresh();
@@ -698,7 +877,7 @@ function refreshOutputsOnly(){
   recalculate();updateHeaderAndKpis();refreshProjectList();renderOutputTabsExceptInputs();saveRecovery();
 }
 function renderAll(rebuildInputs=false){
-  recalculate();renderTabs();refreshProjectList();updateHeaderAndKpis();if(rebuildInputs||!document.getElementById('tabInputs').children.length)renderInputsTab();renderOutputTabsExceptInputs();requestAnimationFrame(()=>requestAnimationFrame(updateFixedHorizontalScroll));
+  recalculate();renderTabs();refreshProjectList();updateWorkspaceName();updateHeaderAndKpis();if(rebuildInputs||!document.getElementById('tabInputs').children.length)renderInputsTab();renderOutputTabsExceptInputs();requestAnimationFrame(()=>requestAnimationFrame(updateFixedHorizontalScroll));
 }
 function getHorizontalScrollParts(){
   const main=document.getElementById('mainContent');const active=document.querySelector('.tab-page.active');let target=null,maxOverflow=0;if(active){for(const el of active.querySelectorAll('.table-wrap,.sketch-box')){const over=Math.max(0,el.scrollWidth-el.clientWidth);if(over>maxOverflow){maxOverflow=over;target=el;}}}return {main,target,mainOverflow:Math.max(0,main.scrollWidth-main.clientWidth),targetOverflow:maxOverflow};
@@ -724,12 +903,12 @@ function handlePartMasterFile(file){
 }
 function initEvents(){
   document.getElementById('modalCloseBtn').addEventListener('click',closeModal);document.getElementById('modalBackdrop').addEventListener('click',e=>{if(e.target.id==='modalBackdrop')closeModal();});
-  document.getElementById('newWorkspaceBtn').addEventListener('click',newWorkspace);document.getElementById('openWorkspaceBtn').addEventListener('click',openWorkspace);document.getElementById('saveWorkspaceBtn').addEventListener('click',saveWorkspace);document.getElementById('saveAsWorkspaceBtn').addEventListener('click',()=>saveWorkspaceAs(true));
+  document.getElementById('newWorkspaceBtn').addEventListener('click',newWorkspace);document.getElementById('openWorkspaceBtn').addEventListener('click',openWorkspace);document.getElementById('renameWorkspaceBtn').addEventListener('click',renameWorkspace);document.getElementById('saveWorkspaceBtn').addEventListener('click',saveWorkspace);
   document.getElementById('newProjectBtn').addEventListener('click',newProject);document.getElementById('duplicateProjectBtn').addEventListener('click',duplicateProject);document.getElementById('renameProjectBtn').addEventListener('click',renameProject);document.getElementById('deleteProjectBtn').addEventListener('click',deleteProject);document.getElementById('resetProjectBtn').addEventListener('click',resetCurrentProject);
   document.getElementById('projectSearch').addEventListener('input',refreshProjectList);document.getElementById('projectList').addEventListener('change',e=>selectProject(e.target.value));
   document.getElementById('exportActiveBtn').addEventListener('click',exportActive);document.getElementById('exportAllBtn').addEventListener('click',exportAllDialog);document.getElementById('changelogBtn').addEventListener('click',showChangelog);
   document.getElementById('workspaceFileInput').addEventListener('change',e=>{handleWorkspaceFile(e.target.files[0]);e.target.value='';});document.getElementById('partMasterFileInput').addEventListener('change',e=>{handlePartMasterFile(e.target.files[0]);e.target.value='';});
-  attachScrollSyncListeners();document.addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey))return;const key=e.key.toLowerCase();if(key==='s'){e.preventDefault();if(e.shiftKey)saveWorkspaceAs(true);else saveWorkspace();}else if(key==='n'){e.preventDefault();newProject();}else if(key==='d'){e.preventDefault();duplicateProject();}else if(key==='o'){e.preventDefault();openWorkspace();}});
+  attachScrollSyncListeners();document.addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey))return;const key=e.key.toLowerCase();if(key==='s'){e.preventDefault();saveWorkspace();}else if(key==='n'){e.preventDefault();newProject();}else if(key==='d'){e.preventDefault();duplicateProject();}else if(key==='o'){e.preventDefault();openWorkspace();}});
 }
 function initApp(){
   initEvents();let loaded=false;const recoveryKey=storageGet(RECOVERY_KEY)?RECOVERY_KEY:(storageGet(LEGACY_RECOVERY_KEY)?LEGACY_RECOVERY_KEY:RECOVERY_KEY);try{const recovery=storageGet(recoveryKey);if(recovery){const recover=confirm('An unsaved recovery workspace was found.\n\nChoose OK to recover it, or Cancel to start with a new default workspace.');if(recover){loadWorkspacePayload(JSON.parse(recovery),true);if(recoveryKey===LEGACY_RECOVERY_KEY)storageRemove(LEGACY_RECOVERY_KEY);loaded=true;}else storageRemove(recoveryKey);}}catch{storageRemove(recoveryKey);}

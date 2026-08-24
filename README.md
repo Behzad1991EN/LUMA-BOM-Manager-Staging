@@ -11,8 +11,6 @@ The workspace toolbar contains **New**, **Open**, **Rename**, and **Save** icon 
 
 **Save** asks where to store the `.luma` workspace file when the browser supports the system file picker. Otherwise, it uses the browser's normal download behavior. Use **Open** to load that file later.
 
-All file-producing actions—including Part Master Save, Excel exports, and high-resolution Tracker Sketch images—request a file or folder location when the browser supports native file pickers. Part Master Save uses that one system dialog for both the filename and location, with **Active Project Name Part Master.json** as the suggested filename. Browsers without that capability use their normal download behavior.
-
 Unsaved changes are also stored as browser recovery data when the browser permits local storage. If local storage is restricted for local files, the app still works, but automatic recovery may not be available.
 
 ## Table editing

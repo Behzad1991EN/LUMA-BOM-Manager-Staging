@@ -557,6 +557,30 @@ textarea:focus {
     min-width: 0;
 }
 
+.anemometer-selection {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 9px;
+    border-left: 3px solid var(--accent);
+    background: #FFF5E4;
+    line-height: 1.25;
+}
+
+.anemometer-selection span {
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.anemometer-selection strong {
+    color: var(--accent-dark);
+    font-size: 13px;
+    overflow-wrap: anywhere;
+}
+
 
 /* =========================================================
    RADIO BUTTONS
@@ -1227,6 +1251,18 @@ th.wrap {
     opacity: .5;
 }
 
+.analysis-default-price-input::placeholder {
+    color: #777;
+    opacity: 1;
+}
+
+#analysisItemPriceRegistry .analysis-default-price-row td:nth-child(3),
+#analysisItemPriceRegistry .analysis-default-price-row td:nth-child(4),
+#analysisItemCostDetails .analysis-default-price-row td:nth-child(6),
+#analysisItemCostDetails .analysis-default-price-row td:nth-child(7) {
+    color: #777;
+}
+
 .analysis-summary {
     display: grid;
     grid-template-columns: repeat(4, minmax(180px, 1fr));
@@ -1341,7 +1377,8 @@ th.wrap {
     margin-top: 18px;
 }
 
-#analysisPriceRegistry tbody tr {
+#analysisPriceRegistry tbody tr,
+#analysisItemPriceRegistry tbody tr {
     cursor: pointer;
 }
 
@@ -1446,6 +1483,49 @@ th.wrap {
     gap: 5px;
 }
 
+.sketch-magnifier-controls {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-left: auto;
+}
+
+.sketch-magnifier-controls label {
+    font-weight: 700;
+}
+
+.sketch-magnifier-controls select {
+    width: 72px;
+}
+
+.sketch-magnifier-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 32px;
+    padding: 4px 10px;
+    border-color: #B8A58B;
+    background: #F2EEE8;
+    color: var(--text);
+}
+
+.sketch-magnifier-button svg {
+    width: 19px;
+    height: 19px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.sketch-magnifier-button.active {
+    border-color: #C96F00;
+    background: var(--accent);
+    color: #fff;
+}
+
 .sketch-box {
     height: 535px;
 
@@ -1456,6 +1536,10 @@ th.wrap {
     overflow: auto;
 }
 
+.sketch-box.magnifier-enabled {
+    cursor: zoom-in;
+}
+
 .sketch-box svg {
     display: block;
 
@@ -1463,6 +1547,45 @@ th.wrap {
 
     width: 100%;
     height: 100%;
+}
+
+.sketch-magnifier-lens {
+    position: fixed;
+    width: 230px;
+    height: 230px;
+    left: 0;
+    top: 0;
+    z-index: 10050;
+    transform: translate(-50%, -50%);
+    border: 3px solid var(--accent-dark);
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 9px 26px rgba(35, 27, 17, .32);
+    pointer-events: none;
+}
+
+.sketch-magnifier-content {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    border-radius: 50%;
+    background: #fff;
+}
+
+.sketch-magnifier-badge {
+    position: absolute;
+    right: -5px;
+    bottom: 12px;
+    min-width: 42px;
+    padding: 4px 7px;
+    border: 2px solid #fff;
+    border-radius: 14px;
+    background: var(--accent-dark);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1;
+    text-align: center;
 }
 
 
@@ -1709,6 +1832,27 @@ th.wrap {
     overflow: auto;
 
     font-size: 14px;
+}
+
+.readme-content {
+    line-height: 1.55;
+}
+
+.readme-content > :first-child {
+    margin-top: 0;
+}
+
+.readme-content > :last-child {
+    margin-bottom: 0;
+}
+
+.readme-content h3 {
+    color: var(--accent-dark);
+    margin: 20px 0 6px;
+}
+
+.readme-content p {
+    margin: 0 0 10px;
 }
 
 
@@ -1983,6 +2127,10 @@ th.wrap {
         display: none;
     }
 
+    .anemometer-selection {
+        grid-column: 2;
+    }
+
     .form-row input,
     .form-row select,
     .triple-input-row {
@@ -2120,6 +2268,10 @@ th.wrap {
     .form-row > label {
         font-weight: 700;
         line-height: 1.25;
+    }
+
+    .anemometer-selection {
+        grid-column: 1;
     }
 
     .radio-row,
@@ -2338,6 +2490,16 @@ th.wrap {
 
     .sketch-options label {
         min-height: 40px;
+    }
+
+    .sketch-magnifier-controls {
+        grid-column: 1 / -1;
+        flex-wrap: wrap;
+        margin-left: 0;
+    }
+
+    .sketch-magnifier-controls label {
+        min-height: 42px;
     }
 
     .sketch-box {

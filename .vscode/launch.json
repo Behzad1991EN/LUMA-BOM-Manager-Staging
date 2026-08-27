@@ -8,7 +8,7 @@
             "type": "chrome",
             "request": "launch",
             "name": "Open index.html",
-            "file": "c:\\Users\\KSGI\\Ksi Dropbox\\Ksi team folder\\Personal\\Behzad\\App\\Scripting\\LUMA BOM Manager Browser_based\\LUMA_BOM_Manager\\index.html"
+            "file": "c:\\Users\\KSGI\\Ksi Dropbox\\Ksi team folder\\Personal\\Behzad\\App\\Scripting\\LUMA_BOM_Manager\\index.html"
         }
     ]
 }

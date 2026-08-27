@@ -282,9 +282,17 @@ globalThis.INTERNAL_PART_MASTER_RAW = [
     "Unit": "pcs"
   },
   {
-    "Part": "Anemometer",
+    "Part": "Anemometer for Cold Weather (above 400)",
     "TAG": "k001536",
-    "Description": "Anemometer for cold climates 0103011303",
+    "Description": "anemometer nuovaceva 0103011303",
+    "Part Number": "",
+    "Category": "Electrical",
+    "Unit": "pcs"
+  },
+  {
+    "Part": "Anemometer for Normal Weather",
+    "TAG": "k001596",
+    "Description": "anemometer nuovaceva 0103010805",
     "Part Number": "",
     "Category": "Electrical",
     "Unit": "pcs"

@@ -2,6 +2,25 @@
 
 (function(global){
   const PART_COLUMNS = ['Part','TAG','Description','Part Number','Category','Unit','Material','Weight'];
+  const ANEMOMETER_ELEVATION_THRESHOLD_M = 400;
+  const ANEMOMETER_OPTIONS = Object.freeze({
+    cold:Object.freeze({
+      key:'cold',
+      part:'Anemometer for Cold Weather (above 400)',
+      tag:'k001536',
+      description:'anemometer nuovaceva 0103011303',
+      price:184.00,
+      currency:'EUR',
+    }),
+    normal:Object.freeze({
+      key:'normal',
+      part:'Anemometer for Normal Weather',
+      tag:'k001596',
+      description:'anemometer nuovaceva 0103010805',
+      price:58.40,
+      currency:'EUR',
+    }),
+  });
 
   function normalizeText(value){
     return String(value ?? '').trim().toLowerCase().replaceAll('×','x').replace(/[^a-z0-9]+/g,'');
@@ -92,6 +111,7 @@
   const DEFAULT_INPUTS = Object.freeze({
     pv_power:'700',
     foundation_type:'Ramming',
+    elevation_asl:'0',
     cad_blocks_available:'Yes',
     max_span_length:'7900',
     pv_module_width:'1134',
@@ -150,7 +170,8 @@
     const r = rule || {};
     return {
       locked:!!r.locked,
-      mode:String(r.mode || 'Symmetrical'),
+      mode:normalizeBearingMode(r.mode),
+      quantity:Math.max(0,asInt(r.quantity,0)),
       symmetrical_distance:asNumber(r.symmetrical_distance,0),
       semi_pair_count:asInt(r.semi_pair_count,(r.semi_pair_gaps||[]).length),
       asym_post_count:asInt(r.asym_post_count,(r.asym_north_gaps||[]).length),
@@ -158,6 +179,26 @@
       asym_north_gaps:Array.from(r.asym_north_gaps || [],v=>asNumber(v,0)),
       asym_south_gaps:Array.from(r.asym_south_gaps || [],v=>asNumber(v,0)),
     };
+  }
+  const BEARING_RULE_MODES=Object.freeze(['Symmetrical','Semi-symmetrical','Asymmetrical']);
+  function normalizeBearingMode(value){
+    const normalized=normalizeText(value);
+    if(normalized==='semisymmetrical')return 'Semi-symmetrical';
+    if(normalized==='asymmetrical')return 'Asymmetrical';
+    return 'Symmetrical';
+  }
+  function bearingRuleVariantKey(mode){return normalizeText(normalizeBearingMode(mode));}
+  function normalizeBearingRuleVariants(value,fallbackQuantity=0){
+    if(!value||typeof value!=='object')return [];
+    const isLegacyRule=Object.prototype.hasOwnProperty.call(value,'mode')||Object.prototype.hasOwnProperty.call(value,'symmetrical_distance')||Object.prototype.hasOwnProperty.call(value,'semi_pair_gaps')||Object.prototype.hasOwnProperty.call(value,'asym_north_gaps');
+    const sources=Array.isArray(value)?value:(isLegacyRule?[value]:Object.values(value));
+    const variants=new Map();
+    sources.filter(source=>source&&typeof source==='object').forEach(source=>{
+      const normalized=normalizeBearingRule(source),key=bearingRuleVariantKey(normalized.mode);
+      if(!Object.prototype.hasOwnProperty.call(source,'quantity')&&sources.length===1)normalized.quantity=Math.max(0,asInt(fallbackQuantity,0));
+      variants.set(key,{...normalized,key});
+    });
+    return BEARING_RULE_MODES.map(mode=>variants.get(bearingRuleVariantKey(mode))).filter(Boolean);
   }
   function getDesignInputs(project){
     const i = project.inputs || {};
@@ -184,6 +225,10 @@
   function calculateAutoPvModuleGap(project){
     const i = project.inputs || {};
     return asNumber(i.pv_module_hole_distance,1093) + asNumber(i.hat_rail_hole_distance,60) - asNumber(i.pv_module_width,1134);
+  }
+  function getAnemometerSelection(project){
+    const elevation=asNumber(project?.inputs?.elevation_asl,0);
+    return elevation>=ANEMOMETER_ELEVATION_THRESHOLD_M?ANEMOMETER_OPTIONS.cold:ANEMOMETER_OPTIONS.normal;
   }
   function cadBlocksAreAvailable(project){ return String(project.inputs?.cad_blocks_available ?? 'Yes').trim().toLowerCase() === 'yes'; }
   function getBomModeText(project){ return cadBlocksAreAvailable(project) ? 'CAD Block' : 'Estimation'; }
@@ -269,9 +314,13 @@
     };
   }
 
-  function getBearingRuleForPv(project,pvCount){
-    const custom = project.bearing_rules?.[String(pvCount)] ?? project.bearing_rules?.[pvCount];
-    return custom ? normalizeBearingRule(custom) : defaultBearingRule(project.inputs || DEFAULT_INPUTS);
+  function getBearingRuleVariantsForPv(project,pvCount){
+    const custom=project.bearing_rules?.[String(pvCount)]??project.bearing_rules?.[pvCount];
+    return normalizeBearingRuleVariants(custom,project.tracker_quantities?.[String(pvCount)]??0);
+  }
+  function getBearingRuleForPv(project,pvCount,variantKey=''){
+    const variants=getBearingRuleVariantsForPv(project,pvCount),requested=bearingRuleVariantKey(variantKey);
+    return variants.find(rule=>rule.key===requested)||variants[0]||defaultBearingRule(project.inputs||DEFAULT_INPUTS);
   }
   function getPositionsFromRule(rule,defaultBearingPostsPerTracker,geometry){
     rule = normalizeBearingRule(rule);
@@ -347,26 +396,27 @@
     }
     return {rows,spanCount,spanType};
   }
-  function calculateBearingLayoutForTracker(project,scheduleRow,geometry){
+  function calculateBearingLayoutForTracker(project,scheduleRow,geometry,ruleOverride=null,ruleSourceOverride=''){
     const pvCount=asInt(scheduleRow['PV Modules per Tracker'],0);
     const defaultPosts=asInt(firstNonEmpty(scheduleRow['Bearing Posts / Tracker'],scheduleRow['Bearing Posts'],2),2);
-    let positions,bearingRuleSource,spanType,spanCount;
+    let positions,bearingRuleSource,bearingRuleMode,spanType,spanCount;
     if(cadBlocksAreAvailable(project)){
-      const rule=getBearingRuleForPv(project,pvCount);
+      const rule=ruleOverride?normalizeBearingRule(ruleOverride):getBearingRuleForPv(project,pvCount,scheduleRow?._bearing_rule_key);
       positions=getPositionsFromRule(rule,defaultPosts,geometry);
-      bearingRuleSource=(project.bearing_rules && Object.prototype.hasOwnProperty.call(project.bearing_rules,String(pvCount)))?'Custom':'Default';
+      bearingRuleSource=ruleSourceOverride||(getBearingRuleVariantsForPv(project,pvCount).length?'Custom':'Default');
+      bearingRuleMode=rule.mode;
       spanType='CAD Block'; spanCount=positions.length;
     } else {
       const estimated=calculateEstimatedBearingPositions(project,geometry);
-      positions=estimated.rows; spanCount=estimated.spanCount; spanType=estimated.spanType; bearingRuleSource='Estimation';
+      positions=estimated.rows; spanCount=estimated.spanCount; spanType=estimated.spanType; bearingRuleSource='Estimation'; bearingRuleMode='Symmetrical';
     }
     let bearing120=0,bearing110=0,bearing100=0,outside=0;
     const outputRows=positions.map(item=>{
       const [zone,bearingType,status]=classifyBearing(geometry,item['Distance from Main Post (mm)']);
       if(bearingType==='Bearing 120') bearing120++; else if(bearingType==='Bearing 110') bearing110++; else if(bearingType==='Bearing 100') bearing100++; else outside++;
-      return {...item,'Absolute Distance (mm)':Math.abs(item['Distance from Main Post (mm)']),'Beam Zone':zone,'Bearing Type':bearingType,'Status':status,'Bearing Rule Source':bearingRuleSource,'Span Type':spanType};
+      return {...item,'Absolute Distance (mm)':Math.abs(item['Distance from Main Post (mm)']),'Beam Zone':zone,'Bearing Type':bearingType,'Status':status,'Bearing Rule Source':bearingRuleSource,'Bearing Rule Mode':bearingRuleMode,'Span Type':spanType};
     });
-    return {'Bearing Posts / Tracker':outputRows.length,'Bearing 120 / Tracker':bearing120,'Bearing 110 / Tracker':bearing110,'Bearing 100 / Tracker':bearing100,'Bearing Outside / Tracker':outside,'Bearing Status':outside===0?'OK':'Warning','Bearing Rule Source':bearingRuleSource,'Span Type':spanType,'Estimated Span Count':spanCount,'Rows':outputRows};
+    return {'Bearing Posts / Tracker':outputRows.length,'Bearing 120 / Tracker':bearing120,'Bearing 110 / Tracker':bearing110,'Bearing 100 / Tracker':bearing100,'Bearing Outside / Tracker':outside,'Bearing Status':outside===0?'OK':'Warning','Bearing Rule Source':bearingRuleSource,'Bearing Rule Mode':bearingRuleMode,'Span Type':spanType,'Estimated Span Count':spanCount,'Rows':outputRows};
   }
 
   function generateModuleRailPositionsForSide(project,pvCount,geometry,side){
@@ -452,20 +502,40 @@
   }
   */
 
-  // TEMPORARY K001099 / PLUSS00173BZ00 RULE: support plates = Hat rails + Z rails.
-  function calculateModuleSupportPlatesForTracker(project,scheduleRow,geometry){
+  // TEMPORARY K001099 / PLUSS00173BZ00 RULE:
+  // PV modules - 2 + 2 × Bearing 110 + 6 × Bearing 100, per tracker.
+  function calculateModuleSupportPlatesForTracker(project,scheduleRow,geometry,bearingRows=[]){
     const pvCount=asInt(scheduleRow['PV Modules per Tracker'],0);
-    const northRows=generateModuleRailPositionsForSide(project,pvCount,geometry,'North');
-    const southRows=generateModuleRailPositionsForSide(project,pvCount,geometry,'South');
-    const markTemporaryRule=rail=>{
-      rail['Final Plates / Rail / Side']=1;
-      rail['Reason']='Temporary rule: one support plate per Hat rail or Z rail';
-      return rail;
-    };
-    northRows.forEach(markTemporaryRule);
-    southRows.forEach(markTemporaryRule);
-    const totalNorth=northRows.length;
-    const totalSouth=southRows.length;
+    function calculateSide(sideName){
+      const rails=generateModuleRailPositionsForSide(project,pvCount,geometry,sideName),reasons=rails.map(()=>[]),influences=rails.map(()=>[]);
+      rails.forEach((rail,index)=>{
+        const base=rail['Rail Type']==='Hat Rail'?1:0;
+        rail['Base Plates']=base;rail['Bearing Required Plates']=0;rail['Final Plates / Rail / Side']=base;
+        reasons[index].push(base?'Temporary formula base: 1 plate per Hat rail':'Temporary formula base: 0 plates per Z rail');
+      });
+      (bearingRows||[]).filter(bearing=>bearing.Side===sideName).forEach(bearing=>{
+        const bearingType=String(bearing['Bearing Type']||''),additionPerRail=bearingType==='Bearing 110'?1:(bearingType==='Bearing 100'?3:0);
+        if(!additionPerRail)return;
+        const position=Math.abs(asNumber(bearing['Distance from Main Post (mm)'],0));
+        const nearest=rails.map((rail,index)=>({index,distance:Math.abs(asNumber(rail['Distance from Mid Plane (mm)'],0)-position)})).sort((a,b)=>a.distance-b.distance||a.index-b.index).slice(0,2);
+        nearest.forEach(({index})=>{
+          rails[index]['Bearing Required Plates']+=additionPerRail;
+          rails[index]['Final Plates / Rail / Side']+=additionPerRail;
+          reasons[index].push(`${bearingType} at ${niceNumber(position)} mm: +${additionPerRail}`);
+          influences[index].push(`${bearingType} @ ${niceNumber(position)} mm`);
+        });
+      });
+      let total=0;
+      rails.forEach((rail,index)=>{
+        rail['Reason']=reasons[index].join('; ');
+        rail['Influence Bearing']=influences[index].join(', ');
+        rail['Influence Bearing Distance']=influences[index].length?influences[index].map(value=>value.split(' @ ')[1]).join(', '):'';
+        total+=asInt(rail['Final Plates / Rail / Side'],0);
+      });
+      return [rails,total];
+    }
+    const [northRows,totalNorth]=calculateSide('North');
+    const [southRows,totalSouth]=calculateSide('South');
     return {'Rows':[...northRows,...southRows],'Rows Right Side':northRows,'Rows North Side':northRows,'Rows South Side':southRows,'Module Support Plates / Tracker':totalNorth+totalSouth,'Module Support Plates / Side':totalNorth===totalSouth?totalNorth:`N:${totalNorth} / S:${totalSouth}`,'Module Support Plates / North Side':totalNorth,'Module Support Plates / South Side':totalSouth};
   }
 
@@ -473,33 +543,39 @@
     const d=getDesignInputs(project);
     const rows=[];
     for(let pvCount=14;pvCount<=56;pvCount++){
-      const trackerQty=asInt(project.tracker_quantities?.[String(pvCount)],0);
       const geometry=calculateTrackerGeometry(project,pvCount);
-      const row={...geometry,'PV Modules per Tracker':pvCount,'Number of Trackers':trackerQty,'PV Modules Total':pvCount*trackerQty,'Estimated Power (MWp)':pvCount*trackerQty*d.pv_power/1000000};
-      const bearingResult=calculateBearingLayoutForTracker(project,row,geometry);
-      Object.assign(row,{
-        'Bearing Posts / Tracker':bearingResult['Bearing Posts / Tracker'],
-        'Bearing 120 / Tracker':bearingResult['Bearing 120 / Tracker'],
-        'Bearing 110 / Tracker':bearingResult['Bearing 110 / Tracker'],
-        'Bearing 100 / Tracker':bearingResult['Bearing 100 / Tracker'],
-        'Bearing Outside / Tracker':bearingResult['Bearing Outside / Tracker'],
-        'Bearing Status':bearingResult['Bearing Status'],
-        'Bearing Rule Source':bearingResult['Bearing Rule Source'],
-        'Span Type':bearingResult['Span Type'],
-        '_bearing_rows':bearingResult.Rows,
+      const variants=cadBlocksAreAvailable(project)?getBearingRuleVariantsForPv(project,pvCount):[];
+      const configurations=variants.length?variants.map(rule=>({rule,quantity:rule.quantity,key:rule.key,source:'Custom'})):[{rule:null,quantity:asInt(project.tracker_quantities?.[String(pvCount)],0),key:'default',source:cadBlocksAreAvailable(project)?'Default':'Estimation'}];
+      configurations.forEach(configuration=>{
+        const trackerQty=Math.max(0,asInt(configuration.quantity,0));
+        const scheduleKey=`${pvCount}:${configuration.key}`;
+        const row={...geometry,'PV Modules per Tracker':pvCount,'Number of Trackers':trackerQty,'PV Modules Total':pvCount*trackerQty,'Estimated Power (MWp)':pvCount*trackerQty*d.pv_power/1000000,'_bearing_rule_key':configuration.key==='default'?'':configuration.key,'_schedule_key':scheduleKey};
+        const bearingResult=calculateBearingLayoutForTracker(project,row,geometry,configuration.rule,configuration.source);
+        Object.assign(row,{
+          'Bearing Posts / Tracker':bearingResult['Bearing Posts / Tracker'],
+          'Bearing 120 / Tracker':bearingResult['Bearing 120 / Tracker'],
+          'Bearing 110 / Tracker':bearingResult['Bearing 110 / Tracker'],
+          'Bearing 100 / Tracker':bearingResult['Bearing 100 / Tracker'],
+          'Bearing Outside / Tracker':bearingResult['Bearing Outside / Tracker'],
+          'Bearing Status':bearingResult['Bearing Status'],
+          'Bearing Rule Source':bearingResult['Bearing Rule Source'],
+          'Bearing Rule Mode':bearingResult['Bearing Rule Mode'],
+          'Span Type':bearingResult['Span Type'],
+          '_bearing_rows':bearingResult.Rows,
+        });
+        const supportResult=calculateModuleSupportPlatesForTracker(project,row,geometry,bearingResult.Rows);
+        Object.assign(row,{
+          'Module Support Plates / Side':supportResult['Module Support Plates / Side'],
+          'Module Support Plates / North Side':supportResult['Module Support Plates / North Side'],
+          'Module Support Plates / South Side':supportResult['Module Support Plates / South Side'],
+          'Module Support Plates / Tracker':supportResult['Module Support Plates / Tracker'],
+          '_module_support_rows':supportResult.Rows,
+          '_module_support_rows_right':supportResult['Rows Right Side'],
+          '_module_support_rows_north':supportResult['Rows North Side'],
+          '_module_support_rows_south':supportResult['Rows South Side'],
+        });
+        rows.push(row);
       });
-      const supportResult=calculateModuleSupportPlatesForTracker(project,row,geometry,bearingResult.Rows);
-      Object.assign(row,{
-        'Module Support Plates / Side':supportResult['Module Support Plates / Side'],
-        'Module Support Plates / North Side':supportResult['Module Support Plates / North Side'],
-        'Module Support Plates / South Side':supportResult['Module Support Plates / South Side'],
-        'Module Support Plates / Tracker':supportResult['Module Support Plates / Tracker'],
-        '_module_support_rows':supportResult.Rows,
-        '_module_support_rows_right':supportResult['Rows Right Side'],
-        '_module_support_rows_north':supportResult['Rows North Side'],
-        '_module_support_rows_south':supportResult['Rows South Side'],
-      });
-      rows.push(row);
     }
     return rows;
   }
@@ -507,7 +583,7 @@
     const rows=[];
     activeSchedule.forEach(scheduleRow=>{
       const trackerQty=asInt(scheduleRow['Number of Trackers'],0),pvCount=asInt(scheduleRow['PV Modules per Tracker'],0);
-      (scheduleRow._bearing_rows||[]).forEach(bearingRow=>rows.push({...bearingRow,'PV Modules per Tracker':pvCount,'Number of Trackers':trackerQty,'Total Bearing Qty':trackerQty}));
+      (scheduleRow._bearing_rows||[]).forEach(bearingRow=>rows.push({...bearingRow,'PV Modules per Tracker':pvCount,'Bearing Rule Mode':scheduleRow['Bearing Rule Mode'],'Number of Trackers':trackerQty,'Total Bearing Qty':trackerQty}));
     });
     return rows;
   }
@@ -516,7 +592,7 @@
     activeSchedule.forEach(scheduleRow=>{
       const trackerQty=asInt(scheduleRow['Number of Trackers'],0),pvCount=asInt(scheduleRow['PV Modules per Tracker'],0);
       (scheduleRow._module_support_rows||[]).forEach(supportRow=>{
-        const item={...supportRow,'PV Modules per Tracker':pvCount,'Number of Trackers':trackerQty};
+        const item={...supportRow,'PV Modules per Tracker':pvCount,'Bearing Rule Mode':scheduleRow['Bearing Rule Mode'],'Number of Trackers':trackerQty};
         if(!item.Side) item.Side=asNumber(item['Signed Distance from Mid Plane (mm)'] ?? item['Distance from Mid Plane (mm)'],0)>=0?'North':'South';
         if(!Object.prototype.hasOwnProperty.call(item,'Signed Distance from Mid Plane (mm)')) item['Signed Distance from Mid Plane (mm)']=(item.Side==='North'?1:-1)*asNumber(item['Distance from Mid Plane (mm)'],0);
         item['Total Plates']=asInt(item['Final Plates / Rail / Side'],0)*trackerQty;
@@ -643,11 +719,12 @@
     return `description:${normalizeText(record?.Description)}`;
   }
   function normalizeSoltrkVersion(value){ return String(value||'2.0').trim()==='3.0'?'3.0':'2.0'; }
+  function scheduleRowIdentity(row){return String(row?._schedule_key||`${asInt(row?.['PV Modules per Tracker'],0)}:default`);}
   function distributeEquipmentQuantities(project,rows,overrideKey,automaticFormula){
     if(!rows.length) return {};
     const automatic=rows.map(row=>Math.max(0,asInt(automaticFormula(row),0)));
     const override=project?.equipment_quantity_overrides?.[overrideKey];
-    if(override===undefined || override===null || override==='') return Object.fromEntries(rows.map((row,index)=>[String(asInt(row['PV Modules per Tracker'])),automatic[index]]));
+    if(override===undefined || override===null || override==='') return Object.fromEntries(rows.map((row,index)=>[scheduleRowIdentity(row),automatic[index]]));
     const total=Math.max(0,asInt(override,0));
     let weights=[...automatic],weightTotal=weights.reduce((sum,value)=>sum+value,0);
     if(weightTotal<=0){weights=rows.map(row=>Math.max(0,asInt(row['Number of Trackers'],0)));weightTotal=weights.reduce((sum,value)=>sum+value,0);}
@@ -657,9 +734,9 @@
     let remainder=total-distributed.reduce((sum,value)=>sum+value,0);
     const order=raw.map((value,index)=>({index,fraction:value-distributed[index]})).sort((a,b)=>b.fraction-a.fraction||a.index-b.index);
     for(let index=0;index<remainder;index++) distributed[order[index%order.length].index]++;
-    return Object.fromEntries(rows.map((row,index)=>[String(asInt(row['PV Modules per Tracker'])),distributed[index]]));
+    return Object.fromEntries(rows.map((row,index)=>[scheduleRowIdentity(row),distributed[index]]));
   }
-  function contextEquipmentQty(context,key,row){ return asInt(context?.[`${key}ByPv`]?.[String(asInt(row['PV Modules per Tracker']))],0); }
+  function contextEquipmentQty(context,key,row){ return asInt(context?.[`${key}ByPv`]?.[scheduleRowIdentity(row)],0); }
   function applyBomMetadata(row,calculatedItem,sourceRecord=null){
     const defaults=defaultBomMetadata(row,calculatedItem),source=sourceRecord&&typeof sourceRecord==='object'?sourceRecord:{};
     row.Material=Object.prototype.hasOwnProperty.call(source,'Material')?source.Material:defaults.Material;
@@ -683,29 +760,30 @@
     ['Module Rail Fixing Part',r=>(Math.max(asInt(r['PV Modules per Tracker'])-2,0)+4+1)*asInt(r['Number of Trackers']),['module rail fixing','rail fixing','fixing part','rail lower clamp','lower clamp'],'Module Rails / Support','Hat Rail + Z Rail + 1 per tracker'],
     // Previous K001099 / PLUSS00173BZ00 calculation (kept for future restoration):
     // ['Module Rail Support Plate',r=>asInt(r['Module Support Plates / Tracker'])*asInt(r['Number of Trackers']),['k001099','module support plate','support plate','module rail support plate'],'Module Rails / Support','Existing formula kept: rail-by-rail bearing influence, taper, and main beam height compensation'],
-    // Temporary calculation: Module Rail Support Plate = Hat rail + Z rail.
-    ['Module Rail Support Plate',r=>(Math.max(asInt(r['PV Modules per Tracker'])-2,0)+4)*asInt(r['Number of Trackers']),['k001099','module support plate','support plate','module rail support plate'],'Module Rails / Support','Temporary rule for K001099 / PLUSS00173BZ00: Hat rail + Z rail'],
+    // Temporary calculation: PV modules - 2 + 2 × Bearing 110 + 6 × Bearing 100.
+    ['Module Rail Support Plate',r=>asInt(r['Module Support Plates / Tracker'])*asInt(r['Number of Trackers']),['k001099','module support plate','support plate','module rail support plate'],'Module Rails / Support','Temporary formula for K001099 / PLUSS00173BZ00: (PV modules − 2) + (2 × Bearing 110) + (6 × Bearing 100), per tracker'],
     ['Module Rail Elevation Plate',r=>2*asInt(r['Bearing 100 / Tracker'])*asInt(r['Number of Trackers']),['k001573','module elevation plate','elevation plate','module rail elevation plate'],'Module Rails / Support','2 × Bearing 100'],
     ['Limit Switch Holder',r=>asInt(r['Number of Trackers']),['limit switch holder'],'Steel Structure','Main Post'],
     ['Limit Switch Trigger',r=>asInt(r['Number of Trackers']),['limit switch trigger','limit switch frame'],'Steel Structure','Main Post'],
     ['SOLTRK Holder',(r,c)=>contextEquipmentQty(c,'soltrk',r),c=>c.soltrkVersion==='3.0'?['k001568']:['k001505'],'Steel Structure','1 × SOLTRK'],
     ['Junction Box Holder',(r,c)=>contextEquipmentQty(c,'junctionBox',r),['k001511','junction box holder','junction holder','j-box holder'],'Steel Structure','1 × Junction Box'],
-    ['k001538 - Anemometer Bracket',r=>ceilUp(asInt(r['Number of Trackers'])/48),['k001538','anemometer bracket','anemometer holder plate'],'Steel Structure','ceil(Tracker / 48) per array type'],
+    ['k001538 - Anemometer Bracket',r=>ceilUp(asInt(r['Number of Trackers'])/48),['k001538','anemometer bracket','anemometer holder plate'],'Steel Structure','Round up (Tracker / 48) per array configuration'],
     ['Bearing 120',r=>asInt(r['Bearing 120 / Tracker'])*asInt(r['Number of Trackers']),['bearing 120','gsqb 120','120 bearing'],'Drive / Bearing','Calculated from bearing post positions on 120 beam zone'],
     ['Bearing 110',r=>asInt(r['Bearing 110 / Tracker'])*asInt(r['Number of Trackers']),['bearing 110','gsqb 110','110 bearing'],'Drive / Bearing','Calculated from bearing post positions on 110 beam zone'],
     ['Bearing 100',r=>asInt(r['Bearing 100 / Tracker'])*asInt(r['Number of Trackers']),['bearing 100','gsqb 100','100 bearing'],'Drive / Bearing','Calculated from bearing post positions on 100 beam zone'],
     ['PV Module',r=>asInt(r['PV Modules per Tracker'])*asInt(r['Number of Trackers']),['pv module','solar module'],'PV Module','PV Modules per Tracker × Number of Trackers'],
     ['Slew Drive',r=>asInt(r['Number of Trackers']),['slewing drive','slew drive'],'Slew Drive','Main Post'],
     ['Limit Switch',r=>2*asInt(r['Number of Trackers']),['limit switch'],'Electrical','2 × Main Post'],
-    ['SOLTRK',(r,c)=>contextEquipmentQty(c,'soltrk',r),c=>c.soltrkVersion==='3.0'?['k001549']:['k001534'],'Electrical','Editable total; automatic default is ceil(Main Post / 2)'],
-    ['Junction Box',(r,c)=>contextEquipmentQty(c,'junctionBox',r),['junction box','j-box','junction'],'Electrical','Editable total; automatic default is floor(Tracker / 2)'],
+    ['SOLTRK',(r,c)=>contextEquipmentQty(c,'soltrk',r),c=>c.soltrkVersion==='3.0'?['k001549']:['k001534'],'Electrical','Editable total; automatic default is round up (Main Post / 2)'],
+    ['Junction Box',(r,c)=>contextEquipmentQty(c,'junctionBox',r),['junction box','j-box','junction'],'Electrical','Editable total; automatic default is round down (Tracker / 2)'],
     ['k001390 - Cable gland pg13.5',r=>2*asInt(r['Number of Trackers']),['k001390','cable gland','pg13.5'],'Electrical','2 × Tracker'],
-    ['k001405 - Safeguard-M48V-8-13_rev03',r=>ceilUp((1/48)*asInt(r['Number of Trackers'])),['k001405','safeguard','m48v'],'Electrical','ceil((1/48) × Tracker)'],
-    ['k001406 - Safeguard-S48V-8-13_rev03',r=>ceilUp((1/48)*asInt(r['Number of Trackers'])),['k001406','safeguard','s48v'],'Electrical','ceil((1/48) × Tracker)'],
-    ['k001525 - Higeco GWC V4 4DIN',r=>ceilUp(.01*asInt(r['Number of Trackers'])),['k001525','higeco','gwc','4din','power supply'],'Electrical','ceil(0.01 × Tracker)'],
-    ['k001552 - Scada Power supply HDR-30-24',r=>ceilUp(.01*asInt(r['Number of Trackers'])),['k001552','scada','power supply','hdr-30-24'],'Electrical','ceil(0.01 × Tracker)'],
-    ['k001542 - Scada enclosure GW40028',r=>ceilUp(.01*asInt(r['Number of Trackers'])),['k001542','scada','enclosure','gw40028','electrical enclosure'],'Electrical','ceil(0.01 × Tracker)'],
-    ['k001536 - Anemometer',r=>ceilUp((1/48)*asInt(r['Number of Trackers'])),['k001536','anemometer','cold climates','0103011303'],'Electrical','ceil((1/48) × Tracker)'],
+    ['k001405 - Safeguard-M48V-8-13_rev03',r=>ceilUp((1/48)*asInt(r['Number of Trackers'])),['k001405','safeguard','m48v'],'Electrical','Round up ((1/48) × Tracker)'],
+    ['k001406 - Safeguard-S48V-8-13_rev03',r=>ceilUp((1/48)*asInt(r['Number of Trackers'])),['k001406','safeguard','s48v'],'Electrical','Round up ((1/48) × Tracker)'],
+    ['k001525 - Higeco GWC V4 4DIN',r=>ceilUp(.01*asInt(r['Number of Trackers'])),['k001525','higeco','gwc','4din','power supply'],'Electrical','Round up (0.01 × Tracker)'],
+    ['k001552 - Scada Power supply HDR-30-24',r=>ceilUp(.01*asInt(r['Number of Trackers'])),['k001552','scada','power supply','hdr-30-24'],'Electrical','Round up (0.01 × Tracker)'],
+    ['k001542 - Scada enclosure GW40028',r=>ceilUp(.01*asInt(r['Number of Trackers'])),['k001542','scada','enclosure','gw40028','electrical enclosure'],'Electrical','Round up (0.01 × Tracker)'],
+    ['Anemometer for Cold Weather (above 400)',(r,c)=>c.anemometer.key==='cold'?ceilUp((1/48)*asInt(r['Number of Trackers'])):0,['k001536','anemometer','nuovaceva','0103011303'],'Electrical','Elevation ≥ 400 m ASL: round up ((1/48) × Tracker)'],
+    ['Anemometer for Normal Weather',(r,c)=>c.anemometer.key==='normal'?ceilUp((1/48)*asInt(r['Number of Trackers'])):0,['k001596','anemometer','nuovaceva','0103010805'],'Electrical','Elevation < 400 m ASL: round up ((1/48) × Tracker)'],
     ['k001164 - DIN 933 ISO 4017 - M20 × 55',r=>8*asInt(r['Number of Trackers']),['k001164','din 933','iso 4017','m20','55'],'Fasteners / Slew Drive Seat','8 × Main Post'],
     ['k001010 - DIN 934 ISO 4032 - M20',r=>8*asInt(r['Number of Trackers']),['k001010','din 934','iso 4032','m20'],'Fasteners / Slew Drive Seat','8 × Main Post'],
     ['k001154 - DIN 125 ISO 7089 - A21 (M20)',r=>16*asInt(r['Number of Trackers']),['k001154','din 125','iso 7089','a21','m20'],'Fasteners / Slew Drive Seat','16 × Main Post'],
@@ -735,7 +813,7 @@
     ['k001235 - DIN 522 - 8.5 × 18 × 3 (M8)',r=>8*asInt(r['Number of Trackers']),['k001235','din 522','8.5','18','m8'],'Fasteners / Module Rails','2 × Z rail'],
     ['k001074 - DIN 982 ISO 7040 - M8',r=>2*(Math.max(asInt(r['PV Modules per Tracker'])-2,0)+4)*asInt(r['Number of Trackers']),['k001074','din 982','iso 7040','m8'],'Fasteners / Module Rails','2 × Rail'],
     ['k001575 - DIN 603 ISO 8677 - M8 × 150 - 50',r=>2*Math.max(asInt(r['PV Modules per Tracker'])-2,0)*asInt(r['Number of Trackers']),['k001575','din 603','iso 8677','m8'],'Fasteners / Hat Rails','2 × Hat Rail'],
-    ['k001503 - DIN 976-1 - M6 × 1000',(r,c)=>ceilUp((2*(contextEquipmentQty(c,'soltrk',r)+contextEquipmentQty(c,'junctionBox',r)))/5),['k001503','din 976','m6','1000'],'Fasteners / SOLTRK + Junction Box Holders','ceil((2 × (SOLTRK Holder + Junction Box Holder Plate)) / 5) per array type'],
+    ['k001503 - DIN 976-1 - M6 × 1000',(r,c)=>ceilUp((2*(contextEquipmentQty(c,'soltrk',r)+contextEquipmentQty(c,'junctionBox',r)))/5),['k001503','din 976','m6','1000'],'Fasteners / SOLTRK + Junction Box Holders','Round up ((2 × (SOLTRK Holder + Junction Box Holder Plate)) / 5) per array configuration'],
     ['k001502 - DIN 9021 ISO 7093 - A6',(r,c)=>4*(contextEquipmentQty(c,'soltrk',r)+contextEquipmentQty(c,'junctionBox',r)),['k001502','din 9021','iso 7093','a6'],'Fasteners / SOLTRK + Junction Box Holders','4 × (SOLTRK Holder + Junction Box Holder Plate)'],
     ['k001501 - DIN 986 - M6',(r,c)=>2*(contextEquipmentQty(c,'soltrk',r)+contextEquipmentQty(c,'junctionBox',r)),['k001501','din 986','m6'],'Fasteners / SOLTRK + Junction Box Holders','2 × (SOLTRK Holder + Junction Box Holder Plate)'],
     ['k001504 - DIN 982 ISO 7040 - M6 - A2K',(r,c)=>2*(contextEquipmentQty(c,'soltrk',r)+contextEquipmentQty(c,'junctionBox',r)),['k001504','din 982','iso 7040','m6','a2k'],'Fasteners / SOLTRK + Junction Box Holders','2 × (SOLTRK Holder + Junction Box Holder Plate)'],
@@ -743,14 +821,15 @@
     ['k001510 - DIN 912 ISO 4762 - M4 × 25',(r,c)=>c.soltrkVersion==='2.0'?4*contextEquipmentQty(c,'soltrk',r):0,['k001510','din 912','iso 4762','m4','25'],'Fasteners / SOLTRK','SOLTRK 2.0 only: 4 × SOLTRK'],
     ['k001402 - DIN 982 ISO 7040 - M4',(r,c)=>4*contextEquipmentQty(c,'soltrk',r)+4*asInt(r['Number of Trackers']),['k001402','din 982','iso 7040','m4'],'Fasteners / SOLTRK + Limit Switch','4 × SOLTRK + 2 × Limit Switch'],
     ['k001454 - DIN 7985 ISO 7045 - M5 × 16',(r,c)=>4*contextEquipmentQty(c,'junctionBox',r)+(c.soltrkVersion==='3.0'?4*contextEquipmentQty(c,'soltrk',r):0),['k001454','din 7985','iso 7045','m5','16'],'Fasteners / Junction Box + SOLTRK 3.0','4 × Junction Box + (SOLTRK 3.0: 4 × SOLTRK)'],
-    ['k001513 - DIN 982 ISO 7040 - M5',(r,c)=>4*contextEquipmentQty(c,'junctionBox',r)+(c.soltrkVersion==='3.0'?4*contextEquipmentQty(c,'soltrk',r):0)+ceilUp((3/48)*asInt(r['Number of Trackers'])),['k001513','din 982','iso 7040','m5'],'Fasteners / Junction Box + SOLTRK 3.0 Holder Plate + Anemometer','4 × Junction Box + (SOLTRK 3.0: 4 × SOLTRK 3.0 Holder Plate) + ceil((3/48) × Tracker) for Anemometer, per array type'],
+    ['k001513 - DIN 982 ISO 7040 - M5',(r,c)=>4*contextEquipmentQty(c,'junctionBox',r)+(c.soltrkVersion==='3.0'?4*contextEquipmentQty(c,'soltrk',r):0)+ceilUp((3/48)*asInt(r['Number of Trackers'])),['k001513','din 982','iso 7040','m5'],'Fasteners / Junction Box + SOLTRK 3.0 Holder Plate + Anemometer','4 × Junction Box + (SOLTRK 3.0: 4 × SOLTRK 3.0 Holder Plate) + round up ((3/48) × Tracker) for Anemometer, per array configuration'],
     ['k001539 - DIN 7985 ISO 7045 - M5 × 20',r=>3*ceilUp(asInt(r['Number of Trackers'])/48),['k001539','din 7985','iso 7045','m5','20'],'Fasteners / Anemometer','Anemometer Bracket × 3'],
     ['k001479 - Tube Spacer',r=>32*asInt(r['Number of Trackers']),['k001479','tube spacer','m12','16','12.7','13.3'],'Fastener','2 × k001388'],
   ];
 
   function buildProjectBom(project,activeSchedule,partMaster,partMasterColumns=PART_COLUMNS){
     const selectedRows=activeSchedule.filter(r=>asInt(r['Number of Trackers'])>0).slice().sort((a,b)=>asInt(b['PV Modules per Tracker'])-asInt(a['PV Modules per Tracker']));
-    const qtyColumns=selectedRows.map(r=>`${asInt(r['PV Modules per Tracker'])}-PV Qty`);
+    const selectedPvs=[...new Set(selectedRows.map(r=>asInt(r['PV Modules per Tracker'])))];
+    const qtyColumns=selectedPvs.map(pv=>`${pv}-PV Qty`);
     const baseColumns=(partMasterColumns||PART_COLUMNS).filter(col=>!['note','notes','material','weight'].includes(normalizeText(col)));
     const displayBaseColumns=baseColumns.map(col=>col==='Part'?'Part Name':col);
     const contingencyEnabled=project?.contingency_enabled===true;
@@ -762,13 +841,17 @@
     const notesByTag={},notesByPart={};
     const bomContext={
       soltrkVersion:normalizeSoltrkVersion(project?.soltrk_version),
+      anemometer:getAnemometerSelection(project),
       soltrkByPv:distributeEquipmentQuantities(project,selectedRows,'soltrk',row=>ceilHalf(asInt(row['Number of Trackers']))),
       junctionBoxByPv:distributeEquipmentQuantities(project,selectedRows,'junction_box',row=>Math.floor(asInt(row['Number of Trackers'])/2)),
     };
 
     for(const [calculatedItem,formula,keywords,categoryFallback,note,unit='pcs'] of BOM_DEFINITIONS){
       const quantitiesByPv={};
-      selectedRows.forEach(scheduleRow=>{ quantitiesByPv[asInt(scheduleRow['PV Modules per Tracker'])]=asNumber(formula(scheduleRow,bomContext),0); });
+      selectedRows.forEach(scheduleRow=>{
+        const pv=asInt(scheduleRow['PV Modules per Tracker']);
+        quantitiesByPv[pv]=asNumber(quantitiesByPv[pv],0)+asNumber(formula(scheduleRow,bomContext),0);
+      });
       const resolvedKeywords=typeof keywords==='function'?keywords(bomContext):keywords;
       const match=findPartMasterMatch(partMaster,resolvedKeywords,calculatedItem,categoryFallback);
       if(!match) continue; // V3.40 authoritative Part Master.
@@ -787,8 +870,7 @@
       const row={};
       for(const column of baseColumns) row[column]=match[column] ?? '';
       if(Object.prototype.hasOwnProperty.call(row,'Part')) row['Part Name']=row.Part;
-      selectedRows.forEach(scheduleRow=>{
-        const pv=asInt(scheduleRow['PV Modules per Tracker']);
+      selectedPvs.forEach(pv=>{
         const value=asNumber(quantitiesByPv[pv],0);
         row[`${pv}-PV Qty`]=value?niceNumber(value):'';
       });
@@ -858,12 +940,12 @@
   }
 
   global.LumaEngine={
-    PART_COLUMNS,DEFAULT_INPUTS,BOM_DEFINITIONS,BOM_DEFAULT_METADATA,
+    PART_COLUMNS,DEFAULT_INPUTS,BOM_DEFINITIONS,BOM_DEFAULT_METADATA,ANEMOMETER_ELEVATION_THRESHOLD_M,ANEMOMETER_OPTIONS,
     normalizeText,asNumber,asInt,niceNumber,firstNonEmpty,ceilHalf,ceilUp,
-    fastenerPartNameFromDescription,loadInternalPartMaster,normalizePartMasterData,defaultTrackerQuantities,defaultManualParts,defaultBearingRule,normalizeBearingRule,
-    getDesignInputs,calculateAutoPvModuleGap,cadBlocksAreAvailable,getBomModeText,getSpanLimits,estimateSpanCountForLength,
-    calculateTrackerGeometry,getBearingRuleForPv,getPositionsFromRule,classifyBearing,classifyBeamZoneForPosition,calculateEstimatedBearingPositions,calculateBearingLayoutForTracker,
+    fastenerPartNameFromDescription,loadInternalPartMaster,normalizePartMasterData,defaultTrackerQuantities,defaultManualParts,defaultBearingRule,normalizeBearingRule,BEARING_RULE_MODES,normalizeBearingMode,bearingRuleVariantKey,normalizeBearingRuleVariants,
+    getDesignInputs,calculateAutoPvModuleGap,getAnemometerSelection,cadBlocksAreAvailable,getBomModeText,getSpanLimits,estimateSpanCountForLength,
+    calculateTrackerGeometry,getBearingRuleVariantsForPv,getBearingRuleForPv,getPositionsFromRule,classifyBearing,classifyBeamZoneForPosition,calculateEstimatedBearingPositions,calculateBearingLayoutForTracker,
     generateModuleRailPositionsForSide,closestRailIndicesAroundPosition,calculateModuleSupportPlatesForTracker,buildSchedule,buildBearingLayoutTable,buildModuleSupportLayoutTable,
-    recordIsFastener,itemIsFastener,recordIsValidForCalculatedItem,findPartMasterMatch,bomRowKey,normalizeSoltrkVersion,buildProjectBom,buildPartMasterPreview,calculateProject,
+    recordIsFastener,itemIsFastener,recordIsValidForCalculatedItem,findPartMasterMatch,bomRowKey,normalizeSoltrkVersion,scheduleRowIdentity,buildProjectBom,buildPartMasterPreview,calculateProject,
   };
 })(globalThis);

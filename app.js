@@ -18,11 +18,13 @@ const TABS = [
   ['Bearing Layout','tabBearing'],
   ['PV Module Support plate','tabSupport'],
   ['Project BOM','tabBom'],
-  ['Part Master','tabPartMaster'],
   ['Tracker Sketch','tabSketch'],
   ['Analysis','tabAnalysis'],
+  ['Quotation','tabQuotation'],
   // ['Calculation Logic','tabLogic'], // Hidden: Part Master Calculation Note is sufficient for now.
 ];
+const ADMINISTRATION_TAB = ['Administration','tabAdministration'];
+const PART_MASTER_ADMIN_TAB = ['Part Master','tabPartMaster'];
 const SKETCH_MAGNIFICATION_LEVELS = Object.freeze([1.5,2,2.5,3,3.5,4]);
 
 const ANALYSIS_CURRENCIES = Object.freeze([
@@ -148,10 +150,10 @@ const USER_MANUAL_URL = 'https://ksisolar.sharepoint.com/:b:/s/Engineering/IQA8C
 let workspace = null;
 let current = null;
 let partMaster = [];
-let partMasterColumns = [...INTERNAL_PART_MASTER_COLUMNS];
+let partMasterColumns = [...PART_MASTER_COLUMNS];
+let partMasterLoadError = '';
+let partMasterLoading = false;
 let workspaceStructureDirty = false;
-let currentPartMasterListName = 'Default Internal';
-let selectedPartMasterRows = new Set();
 let selectedBomRows = new Set();
 let customRuleSelectedKey = null;
 let uiState = {
@@ -201,6 +203,10 @@ function handleMobileNavigationKeydown(event){
 function showToast(message,duration=2200){
   document.querySelector('.toast')?.remove();
   const toast=document.createElement('div');toast.className='toast';toast.textContent=message;document.body.append(toast);setTimeout(()=>toast.remove(),duration);
+}
+function setPartMasterStatus(message='',kind=''){
+  const status=document.getElementById('partMasterStatus');if(!status)return;
+  status.textContent=message;status.className=`part-master-status ${kind}`.trim();status.hidden=!message;
 }
 function downloadBlob(blob,filename){
   const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
@@ -257,40 +263,29 @@ function defaultAnalysisItemPrice(row){
   return Number.isFinite(price)?{price_per_unit:price,currency:'EUR'}:null;
 }
 function normalizeSteelPricingMode(value){return value==='part'?'part':'material';}
-function normalizePartMaster(columns,rows){return E.normalizePartMasterData(columns,rows);}
-function migrateDefaultAnemometerParts(normalized,listName){
-  if(String(listName||'').trim().toLowerCase()!=='default internal')return {...normalized,changed:false};
-  const rows=clone(normalized.rows),columns=[...normalized.columns];let changed=false;
-  const builtInRows=E.loadInternalPartMaster().filter(row=>Object.values(E.ANEMOMETER_OPTIONS).some(item=>E.normalizeText(item.tag)===E.normalizeText(row.TAG)));
-  for(const builtIn of builtInRows){
-    const index=rows.findIndex(row=>E.normalizeText(row.TAG)===E.normalizeText(builtIn.TAG));
-    if(index<0){rows.push(builtIn);changed=true;continue;}
-    if(E.normalizeText(builtIn.TAG)!=='k001536')continue;
-    const row=rows[index],legacyPart=E.normalizeText(row.Part)==='anemometer',legacyDescription=E.normalizeText(row.Description)==='anemometerforcoldclimates0103011303';
-    if(legacyPart){row.Part=builtIn.Part;changed=true;}
-    if(legacyDescription){row.Description=builtIn.Description;changed=true;}
-  }
-  return {columns,rows,changed};
+function normalizeAnalysisSupplierSelections(value){
+  const source=value&&typeof value==='object'?value:{};
+  return {posts:String(source.posts||''),substructure:String(source.substructure||source.steel||''),bearing:String(source.bearing||''),slew_drive:String(source.slew_drive||''),pv_module:String(source.pv_module||''),limit_switch:String(source.limit_switch||''),soltrk:String(source.soltrk||''),junction_box:String(source.junction_box||''),fasteners:String(source.fasteners||'')};
 }
 function makeProject(name='Sample Project',code='SAMPLE'){
   return {
     project_id:uuid(),project_name:name,project_code:code,
     inputs:clone(E.DEFAULT_INPUTS),tracker_quantities:E.defaultTrackerQuantities(),bearing_rules:{},manual_parts:E.defaultManualParts(),
     contingency_enabled:false,fastener_contingency_percent:0,bom_metadata_enabled:true,soltrk_version:'2.0',bom_overrides:{},equipment_quantity_overrides:{},
-    analysis_material_filter:'ALL',analysis_material_prices:{},analysis_item_prices:{},default_item_prices_initialized:true,analysis_steel_pricing_mode:'material',analysis_steel_part_prices:{},
+    analysis_material_filter:'ALL',analysis_material_prices:{},analysis_item_prices:{},default_item_prices_initialized:true,analysis_steel_pricing_mode:'material',analysis_steel_part_prices:{},analysis_supplier_selections:normalizeAnalysisSupplierSelections(),quotation:window.LumaQuotation?.normalize?.()||{},
     selected_logic_pv:'',selected_sketch_pv:'',is_dirty:false,
   };
 }
 function makeDefaultWorkspace(){
   const project=makeProject('Sample Project','SAMPLE');
-  return {format_version:WORKSPACE_FORMAT_VERSION,workspace_name:'Sample',active_project_id:project.project_id,projects:{[project.project_id]:project},shared_part_master:{columns:[...INTERNAL_PART_MASTER_COLUMNS],rows:E.loadInternalPartMaster(),list_name:'Default Internal'}};
+  return {format_version:WORKSPACE_FORMAT_VERSION,workspace_name:'Sample',active_project_id:project.project_id,projects:{[project.project_id]:project}};
 }
 function serializeWorkspace(){
   const projects={};
   for(const [id,p] of Object.entries(workspace.projects)){
-    projects[id]={project_id:p.project_id,project_name:p.project_name,project_code:p.project_code,inputs:clone(p.inputs),tracker_quantities:clone(p.tracker_quantities),bearing_rules:clone(p.bearing_rules),manual_parts:clone(p.manual_parts),contingency_enabled:p.contingency_enabled===true,fastener_contingency_percent:Math.min(100,Math.max(0,E.asNumber(p.fastener_contingency_percent,0))),bom_metadata_enabled:p.bom_metadata_enabled!==false,soltrk_version:E.normalizeSoltrkVersion(p.soltrk_version),bom_overrides:clone(p.bom_overrides||{}),equipment_quantity_overrides:clone(p.equipment_quantity_overrides||{}),analysis_material_filter:p.analysis_material_filter||'ALL',analysis_material_prices:clone(p.analysis_material_prices||{}),analysis_item_prices:clone(p.analysis_item_prices||{}),default_item_prices_initialized:p.default_item_prices_initialized===true,analysis_steel_pricing_mode:normalizeSteelPricingMode(p.analysis_steel_pricing_mode),analysis_steel_part_prices:clone(p.analysis_steel_part_prices||{}),selected_logic_pv:p.selected_logic_pv||'',selected_sketch_pv:p.selected_sketch_pv||''};
+    projects[id]={project_id:p.project_id,project_name:p.project_name,project_code:p.project_code,inputs:clone(p.inputs),tracker_quantities:clone(p.tracker_quantities),bearing_rules:clone(p.bearing_rules),manual_parts:clone(p.manual_parts),contingency_enabled:p.contingency_enabled===true,fastener_contingency_percent:Math.min(100,Math.max(0,E.asNumber(p.fastener_contingency_percent,0))),bom_metadata_enabled:p.bom_metadata_enabled!==false,soltrk_version:E.normalizeSoltrkVersion(p.soltrk_version),bom_overrides:clone(p.bom_overrides||{}),equipment_quantity_overrides:clone(p.equipment_quantity_overrides||{}),analysis_material_filter:p.analysis_material_filter||'ALL',analysis_material_prices:clone(p.analysis_material_prices||{}),analysis_item_prices:clone(p.analysis_item_prices||{}),default_item_prices_initialized:p.default_item_prices_initialized===true,analysis_steel_pricing_mode:normalizeSteelPricingMode(p.analysis_steel_pricing_mode),analysis_steel_part_prices:clone(p.analysis_steel_part_prices||{}),analysis_supplier_selections:normalizeAnalysisSupplierSelections(p.analysis_supplier_selections),quotation:clone(p.quotation||{}),selected_logic_pv:p.selected_logic_pv||'',selected_sketch_pv:p.selected_sketch_pv||''};
   }
-  return {format_version:WORKSPACE_FORMAT_VERSION,workspace_name:workspace.workspace_name,active_project_id:workspace.active_project_id,projects,shared_part_master:{columns:[...partMasterColumns],rows:clone(partMaster),list_name:currentPartMasterListName},saved_at:formatDateTime(),application_version:APP_VERSION};
+  return {format_version:WORKSPACE_FORMAT_VERSION,workspace_name:workspace.workspace_name,active_project_id:workspace.active_project_id,projects,saved_at:formatDateTime(),application_version:APP_VERSION};
 }
 function bearingConfigurationSelectionKey(pv,mode){return `${Number(pv)}|${E.bearingRuleVariantKey(mode)}`;}
 function parseBearingConfigurationSelectionKey(value){const [pv,key]=String(value||'').split('|');return {pv:Number(pv),key};}
@@ -315,6 +310,10 @@ function normalizeProject(raw,id){
   const p=makeProject(String(raw?.project_name||'Untitled Project'),String(raw?.project_code||raw?.inputs?.project_code||''));
   p.project_id=String(raw?.project_id||id||uuid());
   p.inputs={...clone(E.DEFAULT_INPUTS),...(raw?.inputs||{})}; delete p.inputs.project_code;
+  if(!raw?.inputs?.foundation_method)p.inputs.foundation_method=String(raw?.inputs?.foundation_type||'Ramming')==='Ramming'?'Ramming':'Foundation';
+  p.inputs.foundation_type=p.inputs.foundation_method;
+  p.inputs.project_country_type=raw?.inputs?.project_country_type||((raw?.inputs?.project_country&&raw.inputs.project_country!=='Italy')?'Other European Country':'Italy');
+  if(p.inputs.project_country_type==='Italy')p.inputs.project_country='Italy';
   p.tracker_quantities={...E.defaultTrackerQuantities(),...(raw?.tracker_quantities||{})};
   p.bearing_rules=normalizeProjectBearingRules(raw?.bearing_rules,p.tracker_quantities);p.manual_parts=clone(raw?.manual_parts||E.defaultManualParts());
   p.contingency_enabled=raw?.contingency_enabled===true;
@@ -330,7 +329,8 @@ function normalizeProject(raw,id){
     }
   }
   p.analysis_item_prices=savedItemPrices;p.default_item_prices_initialized=true;p._default_item_price_migrated=needsDefaultPriceMigration;
-  p.analysis_steel_pricing_mode=normalizeSteelPricingMode(raw?.analysis_steel_pricing_mode);p.analysis_steel_part_prices=normalizeAnalysisItemPrices(raw?.analysis_steel_part_prices);
+  p.analysis_steel_pricing_mode=normalizeSteelPricingMode(raw?.analysis_steel_pricing_mode);p.analysis_steel_part_prices=normalizeAnalysisItemPrices(raw?.analysis_steel_part_prices);p.analysis_supplier_selections=normalizeAnalysisSupplierSelections(raw?.analysis_supplier_selections);
+  p.quotation=window.LumaQuotation?.normalize?.(raw?.quotation)||clone(raw?.quotation||{});
   const legacyPrice=Number(raw?.analysis_price_per_kg);if(!Object.keys(p.analysis_material_prices).length&&p.analysis_material_filter!=='ALL'&&Number.isFinite(legacyPrice)&&legacyPrice>0)p.analysis_material_prices[p.analysis_material_filter]={material:p.analysis_material_filter,price_per_kg:legacyPrice,currency:isAnalysisCurrency(raw?.analysis_currency)?raw.analysis_currency:'USD'};
   p.selected_logic_pv=String(raw?.selected_logic_pv||'');p.selected_sketch_pv=String(raw?.selected_sketch_pv||'');p.is_dirty=false;
   return p;
@@ -339,9 +339,10 @@ function loadWorkspacePayload(raw,recovery=false){
   if(!raw || typeof raw!=='object' || !raw.projects || typeof raw.projects!=='object' || !Object.keys(raw.projects).length) throw new Error('The workspace does not contain any projects.');
   const projects={};for(const [id,r] of Object.entries(raw.projects)){const p=normalizeProject(r,id);projects[p.project_id]=p;}
   let active=String(raw.active_project_id||'');if(!projects[active]) active=Object.keys(projects)[0];
-  const shared=raw.shared_part_master||{},listName=String(shared.list_name||'Default Internal'),normalizedPartMaster=normalizePartMaster(Array.isArray(shared.columns)&&shared.columns.length?shared.columns:INTERNAL_PART_MASTER_COLUMNS,Array.isArray(shared.rows)&&shared.rows.length?shared.rows:E.loadInternalPartMaster()),migratedPartMaster=migrateDefaultAnemometerParts(normalizedPartMaster,listName);
-  workspace={format_version:String(raw.format_version||WORKSPACE_FORMAT_VERSION),workspace_name:String(raw.workspace_name||'Sample'),active_project_id:active,projects,shared_part_master:{columns:migratedPartMaster.columns,rows:migratedPartMaster.rows,list_name:listName}};
-  partMasterColumns=[...workspace.shared_part_master.columns];partMaster=clone(workspace.shared_part_master.rows);currentPartMasterListName=workspace.shared_part_master.list_name;workspaceStructureDirty=!!recovery||migratedPartMaster.changed;Object.values(workspace.projects).forEach(p=>p.is_dirty=!!recovery||p._default_item_price_migrated===true);selectedPartMasterRows.clear();selectedBomRows.clear();
+  // Legacy workspace Part Master payloads are intentionally ignored. Supabase
+  // is the sole authoritative source for engineering master data.
+  workspace={format_version:String(raw.format_version||WORKSPACE_FORMAT_VERSION),workspace_name:String(raw.workspace_name||'Sample'),active_project_id:active,projects};
+  partMasterColumns=[...PART_MASTER_COLUMNS];workspaceStructureDirty=!!recovery;Object.values(workspace.projects).forEach(p=>p.is_dirty=!!recovery||p._default_item_price_migrated===true);selectedBomRows.clear();
   manualPartCounter=Math.max(2,...Object.keys(projects).flatMap(()=>[]));
   recalculate();renderAll(true);saveRecovery();
 }
@@ -418,8 +419,8 @@ function newWorkspace(){
         const wsName=document.getElementById('newWorkspaceName').value.trim()||'Sample';
         const name=document.getElementById('newWorkspaceProjectName').value.trim()||'Sample Project';
         const code=document.getElementById('newWorkspaceProjectCode').value.trim()||'PROJECT-001';
-        const p=makeProject(name,code);workspace={format_version:WORKSPACE_FORMAT_VERSION,workspace_name:wsName,active_project_id:p.project_id,projects:{[p.project_id]:p},shared_part_master:{columns:[...INTERNAL_PART_MASTER_COLUMNS],rows:E.loadInternalPartMaster(),list_name:'Default Internal'}};
-        partMasterColumns=[...INTERNAL_PART_MASTER_COLUMNS];partMaster=E.loadInternalPartMaster();currentPartMasterListName='Default Internal';workspaceStructureDirty=true;selectedPartMasterRows.clear();selectedBomRows.clear();customRuleSelectedKey=null;closeModal();renderAll(true);markDirty(true);
+        const p=makeProject(name,code);workspace={format_version:WORKSPACE_FORMAT_VERSION,workspace_name:wsName,active_project_id:p.project_id,projects:{[p.project_id]:p}};
+        partMasterColumns=[...PART_MASTER_COLUMNS];workspaceStructureDirty=true;selectedBomRows.clear();customRuleSelectedKey=null;closeModal();renderAll(true);markDirty(true);
       }}
     ]);
 }
@@ -462,26 +463,29 @@ function deleteProject(){
   delete workspace.projects[p.project_id];workspace.active_project_id=Object.keys(workspace.projects)[0];workspaceStructureDirty=true;selectedBomRows.clear();document.getElementById('projectSearch').value='';renderAll(true);saveRecovery();
 }
 function selectProject(projectId){
-  if(!workspace.projects[projectId])return;workspace.active_project_id=projectId;selectedPartMasterRows.clear();selectedBomRows.clear();customRuleSelectedKey=null;
+  if(!workspace.projects[projectId])return;workspace.active_project_id=projectId;selectedBomRows.clear();customRuleSelectedKey=null;
   const q=document.getElementById('projectSearch').value.trim().toLowerCase();const p=getActiveProject();if(q&&!`${p.project_code} ${p.project_name}`.toLowerCase().includes(q))document.getElementById('projectSearch').value='';renderAll(true);saveRecovery();
 }
 function resetCurrentProject(){
   const p=getActiveProject();if(!p)return;
   if(!confirm('Reset all inputs, tracker quantities, bearing rules, and manual parts for the current project?\n\nThis action cannot be undone after saving.'))return;
-  p.inputs=clone(E.DEFAULT_INPUTS);p.tracker_quantities=E.defaultTrackerQuantities();p.bearing_rules={};p.manual_parts=E.defaultManualParts();p.contingency_enabled=false;p.fastener_contingency_percent=0;p.bom_metadata_enabled=true;p.soltrk_version='2.0';p.bom_overrides={};p.equipment_quantity_overrides={};p.analysis_material_filter='ALL';p.analysis_material_prices={};p.analysis_item_prices={};p.default_item_prices_initialized=true;p.analysis_steel_pricing_mode='material';p.analysis_steel_part_prices={};p.selected_logic_pv='';p.selected_sketch_pv='';p.is_dirty=true;selectedBomRows.clear();customRuleSelectedKey=null;uiState.analysisPage='home';uiState.customRule={pv:'14',mode:'Symmetrical',quantity:'0',symmetrical_distance:'8320',semi_pair_count:3,asym_post_count:3,semi_pair_gaps:['8320','7350','6500','',''],asym_north_gaps:['8320','7350','6500','',''],asym_south_gaps:['8320','7350','6500','','']};renderAll(true);saveRecovery();
+  p.inputs=clone(E.DEFAULT_INPUTS);p.tracker_quantities=E.defaultTrackerQuantities();p.bearing_rules={};p.manual_parts=E.defaultManualParts();p.contingency_enabled=false;p.fastener_contingency_percent=0;p.bom_metadata_enabled=true;p.soltrk_version='2.0';p.bom_overrides={};p.equipment_quantity_overrides={};p.analysis_material_filter='ALL';p.analysis_material_prices={};p.analysis_item_prices={};p.default_item_prices_initialized=true;p.analysis_steel_pricing_mode='material';p.analysis_steel_part_prices={};p.analysis_supplier_selections=normalizeAnalysisSupplierSelections();p.quotation=window.LumaQuotation?.normalize?.()||{};p.selected_logic_pv='';p.selected_sketch_pv='';p.is_dirty=true;selectedBomRows.clear();customRuleSelectedKey=null;uiState.analysisPage='home';uiState.customRule={pv:'14',mode:'Symmetrical',quantity:'0',symmetrical_distance:'8320',semi_pair_count:3,asym_post_count:3,semi_pair_gaps:['8320','7350','6500','',''],asym_north_gaps:['8320','7350','6500','',''],asym_south_gaps:['8320','7350','6500','','']};renderAll(true);saveRecovery();
 }
 function renderTabs(){
-  const tabs=document.getElementById('tabs');if(tabs.children.length===0){
-    for(const [label,id] of TABS){const b=document.createElement('button');b.textContent=label;b.dataset.target=id;b.addEventListener('click',()=>activateTab(id));tabs.appendChild(b);}
+  const tabs=document.getElementById('tabs'),visibleTabs=window.LumaAuth?.isAdmin?.()?[...TABS,PART_MASTER_ADMIN_TAB,ADMINISTRATION_TAB]:TABS;
+  const renderedIds=[...tabs.children].map(button=>button.dataset.target);const visibleIds=visibleTabs.map(([,id])=>id);
+  if(renderedIds.join('|')!==visibleIds.join('|')){
+    tabs.replaceChildren();
+    for(const [label,id] of visibleTabs){const b=document.createElement('button');b.textContent=label;b.dataset.target=id;b.addEventListener('click',()=>activateTab(id));tabs.appendChild(b);}
   }
-  const activeEntry=firstStorageEntry([ACTIVE_TAB_KEY,...LEGACY_ACTIVE_TAB_KEYS]);let active=activeEntry?.value||'tabInputs';if(!TABS.some(([,id])=>id===active))active='tabInputs';if(activeEntry?.key!==ACTIVE_TAB_KEY)storageSet(ACTIVE_TAB_KEY,active);LEGACY_ACTIVE_TAB_KEYS.forEach(storageRemove);activateTab(active,false);
+  const activeEntry=firstStorageEntry([ACTIVE_TAB_KEY,...LEGACY_ACTIVE_TAB_KEYS]);let active=activeEntry?.value||'tabInputs';if(!visibleTabs.some(([,id])=>id===active)){active='tabInputs';storageSet(ACTIVE_TAB_KEY,active);}else if(activeEntry?.key!==ACTIVE_TAB_KEY)storageSet(ACTIVE_TAB_KEY,active);LEGACY_ACTIVE_TAB_KEYS.forEach(storageRemove);activateTab(active,false);
 }
 function activateTab(id,store=true){
   document.querySelectorAll('.tab-page').forEach(p=>p.classList.toggle('active',p.id===id));
   document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('active',b.dataset.target===id));
   if(store)storageSet(ACTIVE_TAB_KEY,id);
   if(mobileNavigationEnabled())requestAnimationFrame(()=>document.querySelector(`#tabs button[data-target="${id}"]`)?.scrollIntoView({block:'nearest',inline:'nearest'}));
-  if(id==='tabSketch')drawSketch();requestAnimationFrame(()=>requestAnimationFrame(updateFixedHorizontalScroll));
+  if(id==='tabSketch')drawSketch();if(id==='tabAnalysis')renderAnalysis();if(id==='tabQuotation')renderQuotation();if(id==='tabPartMaster')renderPartMaster();requestAnimationFrame(()=>requestAnimationFrame(updateFixedHorizontalScroll));
 }
 function inputRow(label,key,value,extra=''){
   return `<div class="form-row"><label for="input_${key}">${escapeHtml(label)}</label><input id="input_${key}" data-input-key="${key}" value="${escapeHtml(value)}" ${extra}><span></span></div>`;
@@ -492,6 +496,9 @@ function tripleInputRow(label,keys,values){
 }
 function selectRow(label,key,value,options){
   return `<div class="form-row"><label for="input_${key}">${escapeHtml(label)}</label><select id="input_${key}" data-input-key="${key}">${options.map(o=>`<option ${String(o)===String(value)?'selected':''}>${escapeHtml(o)}</option>`).join('')}</select><span></span></div>`;
+}
+function pairedSelectRow(items){
+  return `<div class="form-row form-row-paired"><div class="paired-inputs">${items.map(({label,key,value,options})=>`<div class="paired-field"><label for="input_${key}">${escapeHtml(label)}</label><select id="input_${key}" data-input-key="${key}">${options.map(option=>{const optionValue=typeof option==='object'?option.value:option,optionLabel=typeof option==='object'?option.label:option;return `<option value="${escapeHtml(optionValue)}" ${String(optionValue)===String(value)?'selected':''}>${escapeHtml(optionLabel)}</option>`;}).join('')}</select></div>`).join('')}</div></div>`;
 }
 function anemometerSelectionText(project){
   const item=E.getAnemometerSelection(project);return `${item.part} · ${item.tag} · ${Number(item.price).toFixed(2)} ${item.currency}`;
@@ -508,7 +515,10 @@ function bindStandardInputs(container){
       const p=getActiveProject();const key=el.dataset.inputKey;if(key.startsWith('__'))return;p.inputs[key]=el.value;
       if(el.dataset.maxDigits){el.value=el.value.replace(/\D/g,'').slice(0,Number(el.dataset.maxDigits));p.inputs[key]=el.value;}
       if(['pv_module_width','pv_module_hole_distance','hat_rail_hole_distance'].includes(key) && p.inputs.pv_gap_locked){p.inputs.pv_module_gap=String(E.niceNumber(E.calculateAutoPvModuleGap(p)));const gap=document.getElementById('input_pv_module_gap');if(gap)gap.value=p.inputs.pv_module_gap;}
+      if(key==='foundation_method')p.inputs.foundation_type=p.inputs.foundation_method;
+      if(key==='project_country_type'&&p.inputs.project_country_type==='Italy')p.inputs.project_country='Italy';
       markDirty();refreshOutputsOnly();
+      if(['foundation_method','foundation_depth_mm','main_post_profile','bearing_post_profile','project_country_type'].includes(key))renderInputsTab();
     });
   });
 }
@@ -518,8 +528,8 @@ function renderInputsTab(){
     <div class="input-section"><h2 class="section-title">Project Inputs</h2>
       ${inputRow('Project Name','__project_name',p.project_name)}
       ${inputRow('Project Code','__project_code',p.project_code)}
-      ${inputRow('PV Module Power (Wp)','pv_power',i.pv_power)}
-      ${selectRow('Foundation Type','foundation_type',i.foundation_type,['Ramming','Embedment'])}
+      ${selectRow('Project Country','project_country_type',i.project_country_type,['Italy','Other European Country'])}
+      ${i.project_country_type==='Other European Country'?inputRow('European Country','project_country',i.project_country):''}
       ${anemometerInputRow(p)}
       <div class="form-row"><label>CAD Blocks Availability</label><div class="radio-row">
         <label class="radio-label"><input type="radio" name="cadAvailability" value="Yes" ${String(i.cad_blocks_available).toLowerCase()==='yes'?'checked':''}> Yes</label>
@@ -527,6 +537,7 @@ function renderInputsTab(){
       </div><span></span></div>
     </div>
     <div class="input-section"><h2 class="section-title">PV Module Inputs</h2>
+      ${inputRow('PV Module Capacity (Wp)','pv_power',i.pv_power)}
       ${inputRow('PV Module Width (mm)','pv_module_width',i.pv_module_width)}
       ${inputRow('PV Module Length (mm)','pv_module_length',i.pv_module_length)}
       ${inputRow('PV Module Transverse Hole Distance (mm)','pv_module_hole_distance',i.pv_module_hole_distance)}
@@ -536,6 +547,12 @@ function renderInputsTab(){
       <div class="form-row"><label for="input_pv_module_gap">PV Module Gap (mm)</label><div class="lock-row"><input id="input_pv_module_gap" value="${escapeHtml(i.pv_module_gap)}" ${i.pv_gap_locked?'readonly':''}><button id="pvGapLock" class="lock-switch ${i.pv_gap_locked?'':'unlocked'}" title="Locked mode: PV Module Gap = PV Module Transverse Hole Distance + Hat Rail Hole Distance - PV Module Width"><span>${i.pv_gap_locked?'LOCK':'UNLOCK'}</span></button></div><span></span></div>
       ${inputRow('Motor Gap (mm)','motor_gap',i.motor_gap)}
       ${inputRow('Target End Gap (mm)','target_end_gap',i.target_end_gap)}
+    </div>
+    <div class="input-section"><h2 class="section-title">Foundation Input</h2>
+      ${selectRow('Method','foundation_method',i.foundation_method,['Ramming','Foundation'])}
+      ${selectRow('Depth','foundation_depth_mm',i.foundation_depth_mm,window.LumaPostConfiguration.depthOptions(partMaster))}
+      ${selectRow('Main Post Type','main_post_profile',i.main_post_profile,window.LumaPostConfiguration.profileOptions(partMaster,'Main Post'))}
+      ${selectRow('Bearing Post Type','bearing_post_profile',i.bearing_post_profile,window.LumaPostConfiguration.profileOptions(partMaster,'Bearing Post'))}
     </div>
     <div class="input-section"><h2 class="section-title">Main Beam Inputs</h2>
       ${inputRow('Overlap A/B (mm)','overlap_ab',i.overlap_ab)}
@@ -688,6 +705,7 @@ function renderBom(){
   const contingencyPercent=Math.min(100,Math.max(0,E.asNumber(p.fastener_contingency_percent,0)));
   const soltrkVersion=E.normalizeSoltrkVersion(p.soltrk_version);
   root.innerHTML=`<div class="bom-controls"><label class="bom-contingency-toggle"><input id="bomContingencyEnabled" type="checkbox" ${p.contingency_enabled?'checked':''}> Contingency</label><label class="bom-contingency-percent" for="bomContingencyPercent">Fasteners (%) <input id="bomContingencyPercent" type="number" min="0" max="100" step="0.1" value="${escapeHtml(E.niceNumber(contingencyPercent))}" ${p.contingency_enabled?'':'disabled'}></label><label><input id="bomMetadataEnabled" type="checkbox" ${p.bom_metadata_enabled!==false?'checked':''}> Material / Weight</label><label for="bomSoltrkVersion">SOLTRK Version <select id="bomSoltrkVersion">${['2.0','3.0'].map(version=>`<option value="${version}" ${version===soltrkVersion?'selected':''}>SOLTRK ${version}</option>`).join('')}</select></label></div><div class="search-row"><label>Search:</label><input id="bomSearchInput" value="${escapeHtml(uiState.projectBomSearch)}" placeholder="Search Project BOM by Part, TAG, Description, Category, quantity..."><button id="bomSearchBtn">Search</button><button id="bomClearBtn">Clear</button></div>${makeArrayTable(current.bom.columns,filtered)}`;
+  if((current.engineeringErrors||[]).length)root.insertAdjacentHTML('afterbegin',`<div class="analysis-warning" role="alert"><strong>BOM blocked:</strong> ${current.engineeringErrors.map(escapeHtml).join('<br>')}</div>`);
   document.getElementById('bomContingencyEnabled').addEventListener('change',e=>{p.contingency_enabled=e.target.checked;markDirty();refreshOutputsOnly();});
   document.getElementById('bomContingencyPercent').addEventListener('change',e=>{const value=Math.min(100,Math.max(0,E.asNumber(e.target.value,0)));p.fastener_contingency_percent=value;markDirty();refreshOutputsOnly();});
   document.getElementById('bomMetadataEnabled').addEventListener('change',e=>{p.bom_metadata_enabled=e.target.checked;markDirty();refreshOutputsOnly();});
@@ -710,29 +728,9 @@ function editBomCell(td,row,column){
   input.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();save();}else if(e.key==='Escape'){done=true;renderBom();}});input.addEventListener('blur',save);
 }
 function renderPartMaster(){
-  const root=document.getElementById('tabPartMaster');const filtered=current.partMasterPreview.filter(r=>rowMatchesSearch(r,uiState.partMasterSearch));
-  root.innerHTML=`<div class="part-controls"><label>Part Master List:</label><span class="list-name">${escapeHtml(currentPartMasterListName)}</span><button id="pmSave">Save Part Master</button><button id="pmLoad">Load Saved Part Master...</button><button id="pmReset">Reset to Default Part Master</button><button id="pmDelete">Delete Selected Part(s)</button></div><p class="table-subtitle">Double-click Part, TAG, Description, Part Number, Category, Material, or Weight to edit. Select one or more rows and click Delete Selected Part(s) to remove them.</p><div class="search-row"><label>Search:</label><input id="pmSearchInput" value="${escapeHtml(uiState.partMasterSearch)}" placeholder="Search Part Master by Part, TAG, Description, Category, Material, Weight, calculation note..."><button id="pmSearchBtn">Search</button><button id="pmClearBtn">Clear</button></div>${makeArrayTable(PART_PREVIEW_COLUMNS,filtered)}`;
-  const tableRows=root.querySelectorAll('tbody tr');tableRows.forEach((tr,displayIndex)=>{const row=filtered[displayIndex],idx=row._part_master_index;if(selectedPartMasterRows.has(idx))tr.classList.add('row-selected');tr.addEventListener('click',e=>{if(e.target.closest('input,select,textarea,button')||e.detail>1)return;if(e.ctrlKey||e.metaKey){selectedPartMasterRows.has(idx)?selectedPartMasterRows.delete(idx):selectedPartMasterRows.add(idx);}else{selectedPartMasterRows.clear();selectedPartMasterRows.add(idx);}renderPartMaster();});tr.querySelectorAll('td').forEach((td,ci)=>{const col=PART_PREVIEW_COLUMNS[ci];if(PART_EDITABLE_COLUMNS.has(col)){td.classList.add('bom-editable-cell');td.title='Double-click to edit.';td.addEventListener('dblclick',e=>{e.stopPropagation();editPartMasterCell(td,idx,col);});}});});
-  const search=()=>{uiState.partMasterSearch=document.getElementById('pmSearchInput').value;renderPartMaster();updateFixedHorizontalScroll();};document.getElementById('pmSearchBtn').addEventListener('click',search);document.getElementById('pmSearchInput').addEventListener('keydown',e=>{if(e.key==='Enter')search();});document.getElementById('pmClearBtn').addEventListener('click',()=>{uiState.partMasterSearch='';renderPartMaster();updateFixedHorizontalScroll();});
-  document.getElementById('pmSave').addEventListener('click',savePartMasterAs);document.getElementById('pmLoad').addEventListener('click',()=>document.getElementById('partMasterFileInput').click());document.getElementById('pmReset').addEventListener('click',resetPartMaster);document.getElementById('pmDelete').addEventListener('click',deleteSelectedPartMaster);
-}
-function editPartMasterCell(td,index,column){
-  if(td.querySelector('input'))return;const storage=column==='Part Name'?'Part':column;const record=partMaster[index];const old=record[storage]??'';td.innerHTML=`<input value="${escapeHtml(old)}" style="width:100%;min-width:120px">`;const input=td.querySelector('input');keepInlineEditorActive(input);input.focus();input.select();let done=false;
-  const save=()=>{if(done)return;done=true;record[storage]=input.value;workspaceStructureDirty=true;getActiveProject().is_dirty=true;saveRecovery();recalculate();renderOutputTabsExceptInputs();refreshProjectList();};input.addEventListener('keydown',e=>{if(e.key==='Enter')save();else if(e.key==='Escape'){done=true;renderPartMaster();}});input.addEventListener('blur',save);
-}
-async function savePartMasterAs(){
-  const activeProjectName=String(getActiveProject()?.project_name||'Untitled Project').trim()||'Untitled Project',suggestedName=`${activeProjectName} Part Master`;
-  const filename=`${safeFilename(suggestedName)}.json`,location=await chooseSaveLocation(filename,'Part Master JSON',{'application/json':['.json']});
-  if(location.cancelled)return;
-  const selectedFilename=location.handle?.name||filename,name=selectedFilename.replace(/\.json$/i,'').trim()||suggestedName;
-  const payload={name,saved_at:formatDateTime(),columns:[...partMasterColumns],rows:partMaster.map(r=>Object.fromEntries(partMasterColumns.map(c=>[c,r[c]??''])))};
-  const result=await writeBlobToSaveLocation(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),filename,location);
-  if(!result.saved)return;currentPartMasterListName=name;workspaceStructureDirty=true;renderPartMaster();saveRecovery();showToast(result.picker?'Part Master saved.':'Part Master downloaded.');
-}
-function resetPartMaster(){if(!confirm('Reset the shared Part Master to the protected internal default list?'))return;partMaster=E.loadInternalPartMaster();partMasterColumns=[...INTERNAL_PART_MASTER_COLUMNS];currentPartMasterListName='Default Internal';selectedPartMasterRows.clear();workspaceStructureDirty=true;Object.values(workspace.projects).forEach(p=>p.is_dirty=true);recalculate();renderAll(false);saveRecovery();}
-function deleteSelectedPartMaster(){
-  if(!selectedPartMasterRows.size){showToast('Select one or more Part Master rows to delete.');return;}if(selectedPartMasterRows.size>=partMaster.length){showToast('The Part Master must contain at least one part.');return;}if(!confirm(`Delete ${selectedPartMasterRows.size} selected Part Master row(s)?\n\nThis changes the shared Part Master for every project in this workspace.`))return;
-  partMaster=partMaster.filter((_,i)=>!selectedPartMasterRows.has(i));selectedPartMasterRows.clear();workspaceStructureDirty=true;Object.values(workspace.projects).forEach(p=>p.is_dirty=true);recalculate();renderAll(false);saveRecovery();
+  const root=document.getElementById('tabPartMaster');
+  if(window.LumaAuth?.isAdmin?.()){window.LumaAdminPartMaster.open(root,()=>activateTab('tabAdministration'));return;}
+  root.replaceChildren();
 }
 
 function logicOptions(){return current.active.length?current.active:current.schedule;}
@@ -935,19 +933,30 @@ function renderSteelAnalysis(){
 }
 
 const ANALYSIS_ITEM_PAGE_CONFIG=Object.freeze({
-  steel:{title:'Steel Structure Cost',subtitle:'Part Mode prices each steel-structure BOM item separately: Total Qty × Price / Unit.'},
-  electrical:{title:'Electrical Cost',subtitle:'Unit-price analysis for electrical and control-system items in the Project BOM.'},
-  major:{title:'Major Components Cost',subtitle:'Unit-price analysis for Bearings, Slew Drives, and PV Modules.'},
-  fasteners:{title:'Fasteners Cost',subtitle:'Unit-price analysis for all Project BOM fasteners, including the selected contingency.'},
+  posts:{title:'Posts Cost',subtitle:'Main and bearing post supplier pricing by BOM TAG.'},
+  substructure:{title:'Substructure Cost',subtitle:'Read-only supplier pricing for structural items other than posts.'},
+  bearing:{title:'Bearing Cost',subtitle:'Read-only supplier pricing for bearing components.'},
+  slew_drive:{title:'Slew Drive Cost',subtitle:'Read-only supplier pricing for slew-drive components.'},
+  pv_module:{title:'PV Module Cost',subtitle:'Read-only supplier pricing for PV modules.'},
+  limit_switch:{title:'Limit Switch Cost',subtitle:'Read-only supplier pricing for limit-switch components.'},
+  soltrk:{title:'SOLTRK Cost',subtitle:'Read-only supplier pricing for SOLTRK components.'},
+  junction_box:{title:'Junction Box Cost',subtitle:'Read-only supplier pricing for junction-box components.'},
+  fasteners:{title:'Fasteners Cost',subtitle:'Read-only supplier pricing by BOM TAG for fasteners, including the selected contingency.'},
 });
-function analysisCategoryMatches(page,row){
-  const category=E.normalizeText(row?.Category);
-  if(page==='steel')return isSteelStructureAnalysisRow(row);
-  if(page==='electrical')return category.includes('electrical');
-  if(page==='major')return !category.includes('fastener')&&(category.startsWith('bearings')||category.startsWith('slewdrive')||category.startsWith('pvmodule'));
-  if(page==='fasteners')return category.includes('fastener');
-  return false;
+function analysisLeafForRow(row){
+  const category=E.normalizeText(row?.Category),identity=E.normalizeText(`${row?.['Part Name']||row?.Part||''} ${row?.Description||''} ${row?.TAG||''}`);
+  if(category.includes('fastener'))return 'fasteners';
+  if(identity.includes('mainpost')||identity.includes('bearingpost')||identity.includes('drivepile')||identity.includes('lateralpile'))return 'posts';
+  if(category.startsWith('pvmodule')||identity==='pvmodule')return 'pv_module';
+  if(identity.includes('limitswitch'))return 'limit_switch';
+  if(identity.includes('soltrk'))return 'soltrk';
+  if(identity.includes('junctionbox')||identity.includes('jbox'))return 'junction_box';
+  if(category.includes('bearing')||identity.startsWith('bearing'))return 'bearing';
+  if(category.includes('slewdrive')||identity.includes('slewdrive'))return 'slew_drive';
+  if(isSteelStructureAnalysisRow(row))return 'substructure';
+  return '';
 }
+function analysisCategoryMatches(page,row){return analysisLeafForRow(row)===page;}
 function analysisItemKey(row){
   return String(row?._bom_key||`item:${E.normalizeText(row?.TAG||row?.['Part Name']||row?.Part||row?.Description)}`);
 }
@@ -1002,22 +1011,72 @@ function renderItemCostAnalysis(page){
   root.querySelectorAll('#analysisItemPriceRegistry tbody tr').forEach((row,index)=>{const item=data.registeredItems[index];if(item?.key===editorKey)row.classList.add('row-selected');if(item?.priceSource==='default'){row.classList.add('analysis-default-price-row');row.title='Editable default price';}row.addEventListener('click',()=>{editorByPage[page]=item.key;renderAnalysis();});});
   root.querySelectorAll('#analysisItemCostDetails tbody tr').forEach((row,index)=>{if(data.mappedRows[index]?.priceSource==='default'){row.classList.add('analysis-default-price-row');row.title='Editable default price';}});
 }
+function ensureCommercialAnalysisData(){
+  const commercial=window.LumaCommercialAnalysis;if(!commercial)return;
+  if(commercial.snapshot().status!=='idle')return;
+  void commercial.load().then(()=>{renderAnalysis();requestAnimationFrame(updateFixedHorizontalScroll);}).catch(()=>{renderAnalysis();requestAnimationFrame(updateFixedHorizontalScroll);});
+}
+function commercialAnalysisRows(page){return (current?.bom?.rows||[]).filter(row=>analysisCategoryMatches(page,row));}
+function buildSupplierCostData(page){
+  const p=getActiveProject(),supplierId=p?.analysis_supplier_selections?.[page]||'';
+  return window.LumaCommercialAnalysis.buildSection(page,supplierId,commercialAnalysisRows(page));
+}
+function formatCommercialDate(value){
+  if(!value)return 'Open';const date=new Date(`${value}T00:00:00`);return Number.isNaN(date.getTime())?String(value):date.toLocaleDateString('en-GB',{day:'2-digit',month:'2-digit',year:'numeric'});
+}
+function supplierOptionLabel(entry){
+  const supplier=entry.supplier,code=String(supplier.supplier_code||'').trim(),name=String(supplier.supplier_name||'').trim();return code&&name?`${code} — ${name}`:code||name||'Unnamed supplier';
+}
+function commercialTableRows(data){
+  return data.rows.map(item=>({TAG:item.tag||'—',Description:item.description,Quantity:formatAnalysisNumber(item.quantity,3),Unit:item.unit,'Unit Price':item.unitPrice===null?(data.selection?'Missing Price':'—'):formatAnalysisNumber(item.unitPrice,5),Total:item.total===null?'—':formatAnalysisFixed(item.total,2)}));
+}
+function supplierCostSummaryText(data){
+  if(data.status==='loading'||data.status==='idle')return 'Loading suppliers';
+  if(data.status==='error')return 'Commercial data unavailable';
+  if(data.invalidSelection)return 'Supplier unavailable';
+  if(!data.selection)return data.eligibleSuppliers.length?'Select supplier':'No eligible suppliers';
+  const subtotal=`${formatAnalysisFixed(data.subtotal,2)} ${data.currency}`;return data.missingPriceRows.length?`${subtotal} subtotal · ${data.missingPriceRows.length} missing`:subtotal;
+}
+function commercialCurrencyText(totals,empty='—'){
+  const entries=Object.entries(totals||{}).filter(([currency,value])=>currency&&Number.isFinite(Number(value))).sort(([a],[b])=>a.localeCompare(b));return entries.length?entries.map(([currency,value])=>`${formatAnalysisFixed(value,2)} ${currency}`).join(' | '):empty;
+}
+function commercialCurrencyHtml(totals,empty='—'){
+  const entries=Object.entries(totals||{}).filter(([currency,value])=>currency&&Number.isFinite(Number(value))).sort(([a],[b])=>a.localeCompare(b));return entries.length?entries.map(([currency,value])=>`<span>${formatAnalysisFixed(value,2)} ${escapeHtml(currency)}</span>`).join(''):`<span>${escapeHtml(empty)}</span>`;
+}
+function renderSupplierCostAnalysis(page){
+  const root=document.getElementById('tabAnalysis'),p=getActiveProject(),config=ANALYSIS_ITEM_PAGE_CONFIG[page],data=buildSupplierCostData(page);if(!root||!p||!config)return;
+  const loading=data.status==='loading'||data.status==='idle',failed=data.status==='error',selection=data.selection,priceList=selection?.priceList,assignment=selection?.categoryAssignment;
+  const options=data.eligibleSuppliers.map(entry=>`<option value="${escapeHtml(entry.supplier.id)}" ${entry.supplier.id===data.requestedSupplierId?'selected':''}>${escapeHtml(supplierOptionLabel(entry))}</option>`).join('');
+  const warnings=[];
+  if(data.invalidSelection)warnings.push('The saved supplier is no longer eligible. Select an active supplier with an active category assignment and active Price List.');
+  if(!loading&&!failed&&!data.eligibleSuppliers.length)warnings.push(`No eligible supplier currently has an active ${data.category} category assignment and active Price List.`);
+  if(selection&&data.missingPriceRows.length){const tags=[...new Set(data.missingPriceRows.map(row=>row.tag||'(blank TAG)'))];warnings.push(`${data.missingPriceRows.length} item(s) are missing prices. Missing TAGs: ${tags.join(', ')}.`);}
+  const warningHtml=warnings.length?`<div class="analysis-warning">${warnings.map(message=>`<div>${escapeHtml(message)}</div>`).join('')}</div>`:'';
+  const errorHtml=failed?'<div class="analysis-warning">Commercial data is unavailable. No supplier pricing is being used. Try refreshing the data.</div>':'';
+  const metadataHtml=selection?`<div class="analysis-commercial-meta"><div><span>Supplier</span><strong>${escapeHtml(supplierOptionLabel(selection))}</strong></div><div><span>Price List Revision</span><strong>${escapeHtml(priceList.revision||'—')}</strong></div><div><span>Currency</span><strong>${escapeHtml(priceList.currency||'—')}</strong></div><div><span>Delivery Time</span><strong>${assignment.delivery_time_days===null||assignment.delivery_time_days===undefined?'Not specified':`${escapeHtml(assignment.delivery_time_days)} days`}</strong></div><div><span>Valid From</span><strong>${escapeHtml(formatCommercialDate(priceList.valid_from))}</strong></div><div><span>Valid Until</span><strong>${escapeHtml(formatCommercialDate(priceList.valid_until))}</strong></div><div class="analysis-validity ${data.validityStatus==='Current'?'current':'attention'}"><span>Validity Status</span><strong>${escapeHtml(data.validityStatus)}</strong></div></div>`:'';
+  const totalLabel=data.missingPriceRows.length?'Subtotal of Priced Items':'Section Total';
+  root.innerHTML=`<div class="analysis-subpage-nav">${analysisBackButtonHtml()}</div><div class="analysis-title-row"><div><h2 class="table-title">${escapeHtml(config.title)}</h2><p class="table-subtitle">${escapeHtml(config.subtitle)} Unit prices are managed only in Administration.</p></div></div><div class="analysis-controls analysis-supplier-controls"><label for="analysisSupplierSelect">Supplier<select id="analysisSupplierSelect" ${loading||failed||!data.eligibleSuppliers.length?'disabled':''}><option value="">${loading?'Loading suppliers...':'Select supplier'}</option>${options}</select></label><button id="analysisCommercialRefresh" type="button" ${loading?'disabled':''}>Refresh Commercial Data</button></div>${errorHtml}${warningHtml}${metadataHtml}<div class="analysis-summary"><div class="analysis-card"><span>Items in Current BOM</span><strong>${data.rows.length}</strong></div><div class="analysis-card"><span>Priced Items</span><strong>${selection?data.pricedRows.length:0}</strong></div><div class="analysis-card"><span>Missing Prices</span><strong>${selection?data.missingPriceRows.length:'—'}</strong></div><div class="analysis-card analysis-cost-card"><span>${escapeHtml(totalLabel)}</span><strong class="analysis-cost-lines">${selection?`${formatAnalysisFixed(data.subtotal,2)} ${escapeHtml(data.currency)}`:'—'}</strong></div></div><h2 class="table-title analysis-detail-title">${escapeHtml(config.title)} Details</h2><p class="table-subtitle">BOM Quantity × Supplier Unit Price. Missing prices are excluded from the subtotal and never treated as zero.</p><div id="analysisSupplierCostDetails">${makeArrayTable(['TAG','Description','Quantity','Unit','Unit Price','Total'],commercialTableRows(data))}</div>`;
+  wireAnalysisBackButton();
+  document.getElementById('analysisSupplierSelect')?.addEventListener('change',event=>{p.analysis_supplier_selections=normalizeAnalysisSupplierSelections(p.analysis_supplier_selections);p.analysis_supplier_selections[page]=event.target.value;markDirty();renderAnalysis();requestAnimationFrame(updateFixedHorizontalScroll);});
+  document.getElementById('analysisCommercialRefresh')?.addEventListener('click',()=>{void window.LumaCommercialAnalysis.load({force:true}).then(()=>renderAnalysis()).catch(()=>renderAnalysis());renderAnalysis();});
+  root.querySelectorAll('#analysisSupplierCostDetails tbody tr').forEach((row,index)=>{if(data.rows[index]?.missingPrice){row.classList.add('analysis-missing-price-row');row.title='This BOM TAG has no unit price in the selected active Price List.';}});
+}
+function renderMajorComponentsAnalysis(){
+  const root=document.getElementById('tabAnalysis'),config=ANALYSIS_ITEM_PAGE_CONFIG.major,rows=commercialAnalysisRows('major').map(row=>({TAG:row.TAG||'—',Description:row.Description||row['Part Name']||row.Part||'',Category:row.Category||'',Quantity:formatAnalysisNumber(E.asNumber(row['Total Qty'],0),3),Unit:row.Unit||''}));if(!root)return;
+  root.innerHTML=`<div class="analysis-subpage-nav">${analysisBackButtonHtml()}</div><div class="analysis-title-row"><div><h2 class="table-title">${escapeHtml(config.title)}</h2><p class="table-subtitle">${escapeHtml(config.subtitle)}</p></div></div><div class="analysis-warning analysis-info">Supplier pricing is not connected here yet because this page combines three distinct commercial categories: Bearings, Slew Drive, and PV Module. No supplier or price is inferred.</div>${makeArrayTable(['TAG','Description','Category','Quantity','Unit'],rows)}`;
+  wireAnalysisBackButton();
+}
 function buildTotalCostData(){
-  const steel=buildSelectedSteelCostData(),electrical=buildItemCostData('electrical'),major=buildItemCostData('major'),fasteners=buildItemCostData('fasteners');
-  const sections=[
-    {name:'Steel Structure',totals:steel.totals,status:steel.status},
-    {name:'Electrical',totals:electrical.costByCurrency,status:`${electrical.pricedCount} priced / ${electrical.unpricedCount} unpriced`},
-    {name:'Major Components',totals:major.costByCurrency,status:`${major.pricedCount} priced / ${major.unpricedCount} unpriced`},
-    {name:'Fasteners',totals:fasteners.costByCurrency,status:`${fasteners.pricedCount} priced / ${fasteners.unpricedCount} unpriced`},
-  ];
+  const supplierSections=Object.keys(window.LumaCommercialAnalysis.SECTION_CATEGORIES).map(page=>({page,data:buildSupplierCostData(page)}));
+  const sections=supplierSections.map(({page,data})=>{const name=window.LumaCommercialAnalysis.SECTION_CATEGORIES[page],totals=data.selection?{[data.currency]:data.subtotal}:{},hasRequiredRows=data.rows.some(row=>row.quantity>0),status=data.selection?`${data.pricedRows.length} priced / ${data.missingPriceRows.length} missing — ${supplierOptionLabel(data.selection)} / ${data.selection.priceList.revision}`:(hasRequiredRows?(data.invalidSelection?'Saved supplier unavailable':'Supplier not selected'):'No BOM items');return {name,totals,status,gapCount:data.selection?data.missingPriceRows.length:(hasRequiredRows?1:0)};});
   const grandTotals={};sections.forEach(section=>mergeAnalysisCurrencyTotals(grandTotals,section.totals));
-  const gapCount=steel.gapCount+electrical.unpricedCount+major.unpricedCount+fasteners.unpricedCount;
-  return {sections,grandTotals,gapCount,rows:sections.map(section=>({Category:section.name,'Estimated Cost':analysisCurrencyText(section.totals),'Pricing Status':section.status}))};
+  const gapCount=sections.reduce((sum,section)=>sum+section.gapCount,0);
+  return {sections,grandTotals,gapCount,rows:sections.map(section=>({Category:section.name,'Estimated Cost':commercialCurrencyText(section.totals),'Pricing Status':section.status}))};
 }
 function renderTotalCostAnalysis(){
   const root=document.getElementById('tabAnalysis'),data=buildTotalCostData();if(!root)return;const currencies=Object.keys(data.grandTotals).length;
-  const warningHtml=data.gapCount?`<div class="analysis-warning">${data.gapCount} pricing or weight data gap(s) remain. Total Cost includes only rows with enough information to calculate a cost.</div>`:'';
-  root.innerHTML=`<div class="analysis-subpage-nav">${analysisBackButtonHtml()}</div><div class="analysis-title-row"><div><h2 class="table-title">Total Project Cost</h2><p class="table-subtitle">Combined Steel Structure, Electrical, Major Components, and Fasteners costs for the active project.</p></div></div><div class="analysis-summary analysis-total-summary"><div class="analysis-card analysis-cost-card"><span>Calculated Project Total</span><strong class="analysis-cost-lines">${analysisCurrencyHtml(data.grandTotals)}</strong></div><div class="analysis-card"><span>Cost Categories</span><strong>${data.sections.length}</strong></div><div class="analysis-card"><span>Currencies in Total</span><strong>${currencies}</strong></div><div class="analysis-card"><span>Data Gaps</span><strong>${data.gapCount}</strong></div></div>${warningHtml}<h2 class="table-title analysis-detail-title">Cost Breakdown</h2><p class="table-subtitle">Different currencies are shown separately and are never added together without an exchange rate.</p>${makeArrayTable(['Category','Estimated Cost','Pricing Status'],data.rows)}`;
+  const warningHtml=data.gapCount?`<div class="analysis-warning">${data.gapCount} supplier selection or price data gap(s) remain. Values shown are commercial subtotals of priced items only.</div>`:'';
+  root.innerHTML=`<div class="analysis-subpage-nav">${analysisBackButtonHtml()}</div><div class="analysis-title-row"><div><h2 class="table-title">Total Project Cost</h2><p class="table-subtitle">Conservative supplier-price summary for the active project.</p></div></div><div class="analysis-summary analysis-total-summary"><div class="analysis-card analysis-cost-card"><span>${data.gapCount?'Project Subtotals':'Calculated Project Total'}</span><strong class="analysis-cost-lines">${commercialCurrencyHtml(data.grandTotals)}</strong></div><div class="analysis-card"><span>Cost Categories</span><strong>${data.sections.length}</strong></div><div class="analysis-card"><span>Currencies Shown Separately</span><strong>${currencies}</strong></div><div class="analysis-card"><span>Data Gaps</span><strong>${data.gapCount}</strong></div></div>${warningHtml}<h2 class="table-title analysis-detail-title">Cost Breakdown</h2><p class="table-subtitle">Different currencies are kept as separate subtotals and are never converted or added together.</p>${makeArrayTable(['Category','Estimated Cost','Pricing Status'],data.rows)}`;
   wireAnalysisBackButton();
 }
 function analysisFindPackagePart(item){
@@ -1052,21 +1111,23 @@ function analysisHomeSummary(totals,hasGaps=false){
   const text=analysisCurrencyText(totals,'');return text|| (hasGaps?'Prices required':'0.00');
 }
 function renderAnalysisHome(){
-  const root=document.getElementById('tabAnalysis');if(!root)return;const steel=buildSelectedSteelCostData(),electrical=buildItemCostData('electrical'),major=buildItemCostData('major'),fasteners=buildItemCostData('fasteners'),total=buildTotalCostData(),packages=buildFastenerPackagingData();
+  const root=document.getElementById('tabAnalysis');if(!root)return;const total=buildTotalCostData(),packages=buildFastenerPackagingData();
   const cards=[
-    {page:'steel',title:'Steel Structure Cost',description:steel.description,summary:analysisHomeSummary(steel.totals,steel.gapCount>0)},
-    {page:'electrical',title:'Electrical Cost',description:'Electrical and control-system equipment.',summary:analysisHomeSummary(electrical.costByCurrency,electrical.unpricedCount>0)},
-    {page:'major',title:'Major Components Cost',description:'Bearings, Slew Drives, and PV Modules.',summary:analysisHomeSummary(major.costByCurrency,major.unpricedCount>0)},
-    {page:'fasteners',title:'Fasteners Cost',description:'All fasteners with BOM contingency.',summary:analysisHomeSummary(fasteners.costByCurrency,fasteners.unpricedCount>0)},
-    {page:'total',title:'Total Project Cost',description:'Combined cost breakdown by currency.',summary:analysisHomeSummary(total.grandTotals,total.gapCount>0)},
+    ...Object.keys(window.LumaCommercialAnalysis.SECTION_CATEGORIES).map(page=>({page,title:ANALYSIS_ITEM_PAGE_CONFIG[page].title,description:ANALYSIS_ITEM_PAGE_CONFIG[page].subtitle,summary:supplierCostSummaryText(buildSupplierCostData(page))})),
+    {page:'total',title:'Total Project Cost',description:'Commercial subtotals kept separate by currency.',summary:commercialCurrencyText(total.grandTotals,total.gapCount?'Pricing incomplete':'0.00')},
     {page:'packaging',title:'Fastener Packaging',description:'Installation kits for eight connection sections.',summary:`${packages.length} installation sections`},
   ];
   root.innerHTML=`<div class="analysis-home-header"><h2 class="table-title">Project Cost Analysis</h2><p class="table-subtitle">Choose an analysis area for the active project.</p></div><div class="analysis-home-grid">${cards.map(card=>`<button class="analysis-home-card" type="button" data-analysis-page="${card.page}"><span class="analysis-home-icon">${analysisHomeIcon(card.page)}</span><span class="analysis-home-copy"><strong>${escapeHtml(card.title)}</strong><span>${escapeHtml(card.description)}</span><em>${escapeHtml(card.summary)}</em></span><span class="analysis-home-arrow" aria-hidden="true">›</span></button>`).join('')}</div>`;
+  const grid=root.querySelector('.analysis-home-grid'),buttons=new Map([...grid.children].map(button=>[button.dataset.analysisPage,button]));grid.classList.add('analysis-home-sections');grid.replaceChildren();
+  for(const [title,pages] of [['Steel Structure',['posts','substructure']],['Major Components',['slew_drive','bearing']],['Electrical',['pv_module','limit_switch','soltrk','junction_box']],['Fasteners',['fasteners']],['Summary',['total','packaging']]]){
+    const section=document.createElement('section');section.className=`analysis-home-section ${pages.length>3?'analysis-home-section-wide':''}`;section.innerHTML=`<h3>${escapeHtml(title)}</h3><div class="analysis-home-grid"></div>`;const sectionGrid=section.querySelector('.analysis-home-grid');pages.forEach(page=>{if(buttons.has(page))sectionGrid.appendChild(buttons.get(page));});grid.appendChild(section);
+  }
   root.querySelectorAll('[data-analysis-page]').forEach(button=>button.addEventListener('click',()=>{uiState.analysisPage=button.dataset.analysisPage;renderAnalysis();requestAnimationFrame(updateFixedHorizontalScroll);}));
 }
 function renderAnalysis(){
   const page=String(uiState.analysisPage||'home');
-  if(page==='steel')renderSteelAnalysis();else if(ANALYSIS_ITEM_PAGE_CONFIG[page])renderItemCostAnalysis(page);else if(page==='total')renderTotalCostAnalysis();else if(page==='packaging')renderFastenerPackaging();else{uiState.analysisPage='home';renderAnalysisHome();}
+  ensureCommercialAnalysisData();
+  if(Object.prototype.hasOwnProperty.call(window.LumaCommercialAnalysis.SECTION_CATEGORIES,page))renderSupplierCostAnalysis(page);else if(page==='total')renderTotalCostAnalysis();else if(page==='packaging')renderFastenerPackaging();else{uiState.analysisPage='home';renderAnalysisHome();}
 }
 
 function projectSummaryRows(p,calc){
@@ -1080,13 +1141,16 @@ function customBearingExportRows(p,calc){
   const rows=[['Array Type','Mode','Max Span Length (mm)','Tracker Length (mm)','Tracker Type','Bearing Posts']];for(const r of calc.schedule)rows.push([`${r['PV Modules per Tracker']}-PV`,'Symmetrical',E.niceNumber(E.asNumber(p.inputs.max_span_length,7900)),E.niceNumber(r['Tracker Length (mm)']),r['Span Type'],r['Bearing Posts / Tracker']]);return rows;
 }
 function buildProjectExport(p){
+  if(partMasterLoading)throw new Error('Part Master is still loading. Wait for it to finish before exporting.');
+  if(partMasterLoadError)throw new Error(`Export blocked: ${partMasterLoadError}`);
+  const validation=E.calculateProject(p,partMaster,partMasterColumns);if((validation.engineeringErrors||[]).length)throw new Error(`Export blocked: ${validation.engineeringErrors.join(' ')}`);
   const calc=E.calculateProject(p,partMaster,partMasterColumns);const arrays=[SELECTED_ARRAY_COLUMNS,...calc.active.map(r=>SELECTED_ARRAY_COLUMNS.map(c=>r[c]??''))];const bomColumns=calc.bom.columns.filter(c=>!['note','notes','calculationnote'].includes(E.normalizeText(c)));const bom=[bomColumns,...calc.bom.rows.map(r=>bomColumns.map(c=>r[c]??''))];const sheets=[{name:'Project Summary',rows:projectSummaryRows(p,calc)},{name:'Inputs',rows:inputExportRows(p)},{name:'Custom Bearing Rules',rows:customBearingExportRows(p,calc)},{name:'Selected Arrays',rows:arrays},{name:'Project BOM',rows:bom}];return {blob:XlsxLite.createWorkbookBlob(sheets),filename:`${safeFilename(p.project_code)}_${safeFilename(p.project_name)}_LUMA_Complete_BOM.xlsx`};
 }
 async function exportProject(p,directoryHandle=null){
   const file=buildProjectExport(p);if(directoryHandle){await saveBlobToDirectory(file.blob,file.filename,directoryHandle);return {saved:true,picker:true};}
   return saveBlobWithLocation(file.blob,file.filename,'Excel workbook',{'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':['.xlsx']});
 }
-async function exportActive(){const p=getActiveProject();if(!p)return;const result=await exportProject(p);if(result.saved)showToast(result.picker?'Excel BOM saved.':'Excel BOM downloaded.');}
+async function exportActive(){const p=getActiveProject();if(!p)return;try{const result=await exportProject(p);if(result.saved)showToast(result.picker?'Excel BOM saved.':'Excel BOM downloaded.');}catch(error){alert(error.message||'Export could not be completed.');}}
 function exportAllDialog(){
   const projects=Object.values(workspace.projects);const html=`<p>Select the projects to export. One Excel workbook will be downloaded for each selected project.</p><div class="project-check-list">${projects.map(p=>`<label><input type="checkbox" data-export-project="${escapeHtml(p.project_id)}" checked> ${escapeHtml(p.project_code)} — ${escapeHtml(p.project_name)}</label>`).join('')}</div>`;
   openModal('Export Projects',html,[{text:'Cancel',onClick:closeModal},{text:'Export Selected',className:'export',onClick:async()=>{const ids=[...document.querySelectorAll('[data-export-project]:checked')].map(x=>x.dataset.exportProject);if(!ids.length){showToast('Select at least one project.');return;}closeModal();
@@ -1103,8 +1167,36 @@ function showReadme(){
   const html=`<div class="readme-content"><p>A BOM management tool for KSI's LUMA single-axis tracker that automates the workflow from BOM creation through quotation generation.</p><h3>Workspace</h3><p>The workspace toolbar contains <strong>New</strong>, <strong>Open</strong>, <strong>Rename</strong>, and <strong>Save</strong> icon buttons. Hover over an icon to see its name. The current workspace name is shown beside the <strong>WORKSPACE</strong> heading, and new sessions start with the name <strong>Sample</strong>.</p><p><strong>Save</strong> asks where to store the <code>.luma</code> workspace file when the browser supports the system file picker. Otherwise, it uses the browser's normal download behavior. Use <strong>Open</strong> to load that file later.</p><p>Unsaved changes are also stored as browser recovery data when the browser permits local storage. If local storage is restricted for local files, the app still works, but automatic recovery may not be available.</p><h3>Export</h3><p><strong>Active Project</strong> creates one native <code>.xlsx</code> workbook for the active project and asks where to save it when supported by the browser.</p><p><strong>All Projects</strong> lets you select multiple projects and asks for one destination folder for the separate <code>.xlsx</code> workbooks when supported. Otherwise, the files use the browser's normal multiple-download behavior.</p><h3>User Manual</h3><p><a href="${USER_MANUAL_URL}" target="_blank" rel="noopener noreferrer">Version 3.00</a></p></div>`;
   openModal(`${APP_NAME} ${APP_VERSION.replace('Version ','V')}`,html,[{text:'Close',onClick:closeModal}]);
 }
+function renderAdministration(){
+  const root=document.getElementById('tabAdministration');if(!root)return;
+  window.LumaAdminSuppliers.render(root);
+}
+function renderQuotation(){const root=document.getElementById('tabQuotation');if(root&&root.classList.contains('active'))void window.LumaQuotation.render(root);}
+function applyPartMasterRows(rows){
+  partMaster=(rows||[]).filter(row=>row.Active!==false);
+  partMasterColumns=[...PART_MASTER_COLUMNS];
+  partMasterLoadError='';partMasterLoading=false;setPartMasterStatus();
+  if(workspace){recalculate();renderAll(true);}
+}
+async function reloadPartMaster({force=true}={}){
+  if(!window.LumaPartMasterService){
+    partMaster=[];partMasterLoadError='Part Master service is unavailable. BOM generation is unavailable.';setPartMasterStatus(partMasterLoadError,'error');return false;
+  }
+  partMasterLoading=true;setPartMasterStatus('Loading Part Master from Supabase...','loading');
+  try{
+    const databaseRows=await window.LumaPartMasterService.loadPartMaster({force});
+    if(!databaseRows.length)throw new Error('No active Part Master records were returned.');
+    applyPartMasterRows(window.LumaPartMasterService.getActiveParts());
+    return true;
+  }catch(error){
+    console.error('Central Part Master unavailable. BOM generation has been disabled.',error?.message||'unknown');
+    partMaster=[];partMasterColumns=[...PART_MASTER_COLUMNS];partMasterLoading=false;
+    partMasterLoadError=error?.message||'Part Master could not be loaded. BOM generation is unavailable.';
+    setPartMasterStatus(partMasterLoadError,'error');if(workspace){recalculate();renderAll(true);}return false;
+  }
+}
 function renderOutputTabsExceptInputs(){
-  if(!current)return;renderArrayTable();renderSelectedArrays();renderBearingLayout();renderSupport();renderBom();renderPartMaster();renderSketch();renderAnalysis();/* Calculation Logic tab hidden; Part Master notes are sufficient. */renderBearingSummaryOnly();requestAnimationFrame(()=>requestAnimationFrame(updateFixedHorizontalScroll));
+  if(!current)return;renderArrayTable();renderSelectedArrays();renderBearingLayout();renderSupport();renderBom();renderSketch();renderAnalysis();renderQuotation();renderAdministration();/* Calculation Logic tab hidden; Part Master is administered centrally. */renderBearingSummaryOnly();requestAnimationFrame(()=>requestAnimationFrame(updateFixedHorizontalScroll));
 }
 function refreshOutputsOnly(){
   recalculate();updateHeaderAndKpis();refreshProjectList();renderOutputTabsExceptInputs();saveRecovery();
@@ -1131,9 +1223,6 @@ function attachScrollSyncListeners(){
 function handleWorkspaceFile(file){
   if(!file)return;const reader=new FileReader();reader.onload=()=>{try{loadWorkspacePayload(JSON.parse(reader.result));showToast('Workspace loaded.');}catch(err){alert(`Could not open workspace:\n${err.message}`);}};reader.readAsText(file);
 }
-function handlePartMasterFile(file){
-  if(!file)return;const reader=new FileReader();reader.onload=()=>{try{const payload=JSON.parse(reader.result),rows=payload.rows;if(!Array.isArray(rows)||!rows.length)throw new Error('The selected Part Master list is empty or invalid.');const normalized=normalizePartMaster(Array.isArray(payload.columns)&&payload.columns.length?payload.columns:INTERNAL_PART_MASTER_COLUMNS,rows);partMasterColumns=normalized.columns;partMaster=normalized.rows;if(!partMaster.length)throw new Error('No valid Part Master rows found.');currentPartMasterListName=String(payload.name||file.name.replace(/\.json$/i,''));workspaceStructureDirty=true;Object.values(workspace.projects).forEach(p=>p.is_dirty=true);selectedPartMasterRows.clear();recalculate();renderAll(false);saveRecovery();showToast('Part Master loaded.');}catch(err){alert(`Could not load Part Master list:\n${err.message}`);}};reader.readAsText(file);
-}
 function initEvents(){
   document.getElementById('modalCloseBtn').addEventListener('click',closeModal);document.getElementById('modalBackdrop').addEventListener('click',e=>{if(e.target.id==='modalBackdrop')closeModal();});
   document.getElementById('mobileMenuBtn').addEventListener('click',()=>setMobileNavigationOpen(!document.body.classList.contains('mobile-nav-open')));document.getElementById('mobileMenuCloseBtn').addEventListener('click',()=>setMobileNavigationOpen(false));document.getElementById('sidebarScrim').addEventListener('click',()=>setMobileNavigationOpen(false));document.addEventListener('keydown',handleMobileNavigationKeydown);window.addEventListener('resize',syncMobileNavigation);syncMobileNavigation();
@@ -1141,12 +1230,29 @@ function initEvents(){
   document.getElementById('newProjectBtn').addEventListener('click',newProject);document.getElementById('duplicateProjectBtn').addEventListener('click',duplicateProject);document.getElementById('renameProjectBtn').addEventListener('click',renameProject);document.getElementById('deleteProjectBtn').addEventListener('click',deleteProject);document.getElementById('resetProjectBtn').addEventListener('click',resetCurrentProject);
   document.getElementById('projectSearch').addEventListener('input',refreshProjectList);document.getElementById('projectList').addEventListener('change',e=>{selectProject(e.target.value);if(mobileNavigationEnabled())setMobileNavigationOpen(false);});
   document.getElementById('exportActiveBtn').addEventListener('click',exportActive);document.getElementById('exportAllBtn').addEventListener('click',exportAllDialog);document.getElementById('changelogBtn').addEventListener('click',showChangelog);document.getElementById('readmeBtn').addEventListener('click',showReadme);
-  document.getElementById('workspaceFileInput').addEventListener('change',e=>{handleWorkspaceFile(e.target.files[0]);e.target.value='';});document.getElementById('partMasterFileInput').addEventListener('change',e=>{handlePartMasterFile(e.target.files[0]);e.target.value='';});
+  document.getElementById('workspaceFileInput').addEventListener('change',e=>{handleWorkspaceFile(e.target.files[0]);e.target.value='';});
   attachScrollSyncListeners();document.addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey))return;const key=e.key.toLowerCase();if(key==='s'){e.preventDefault();saveWorkspace();}else if(key==='n'){e.preventDefault();newProject();}else if(key==='d'){e.preventDefault();duplicateProject();}else if(key==='o'){e.preventDefault();openWorkspace();}});
 }
+let appStarted = false;
 function initApp(){
+  if(appStarted)return;appStarted=true;
   initEvents();let loaded=false;const recoveryEntry=firstStorageEntry([RECOVERY_KEY,...LEGACY_RECOVERY_KEYS]);try{if(recoveryEntry?.value){const recover=confirm('An unsaved recovery workspace was found.\n\nChoose OK to recover it, or Cancel to start with a new default workspace.');if(recover){loadWorkspacePayload(JSON.parse(recoveryEntry.value),true);LEGACY_RECOVERY_KEYS.forEach(storageRemove);loaded=true;}else{storageRemove(recoveryEntry.key);LEGACY_RECOVERY_KEYS.forEach(storageRemove);}}}catch{if(recoveryEntry)storageRemove(recoveryEntry.key);}
-  if(!loaded){workspace=makeDefaultWorkspace();partMasterColumns=[...workspace.shared_part_master.columns];partMaster=clone(workspace.shared_part_master.rows);currentPartMasterListName=workspace.shared_part_master.list_name;renderAll(true);saveRecovery();}
+  if(!loaded){workspace=makeDefaultWorkspace();partMasterColumns=[...PART_MASTER_COLUMNS];partMaster=[];renderAll(true);saveRecovery();}
+  void reloadPartMaster({force:true});void window.LumaQuotation?.loadSettings?.();
 }
 
-document.addEventListener('DOMContentLoaded',initApp);
+function refreshAuthorization(){
+  if(!appStarted)return;renderTabs();renderAdministration();
+  if(window.LumaAuth?.getSession?.())void reloadPartMaster({force:true});
+}
+
+function getPartMasterItems(){
+  const items=[],seen=new Set();
+  for(const record of partMaster||[]){
+    const tag=String(record?.TAG||'').trim(),key=tag.toLowerCase();if(!tag||seen.has(key))continue;seen.add(key);
+    items.push(Object.freeze({tag,description:String(record?.Description||'').trim(),unit:String(record?.Unit||'').trim(),category:String(record?.Category||'').trim()}));
+  }
+  return Object.freeze(items.sort((a,b)=>a.tag.localeCompare(b.tag)).slice());
+}
+
+window.LumaApp = Object.freeze({init:initApp,refreshAuthorization,getPartMasterItems,reloadPartMaster,getPartMaster:()=>partMaster,getActiveProject,getCalculation:()=>current,getCommercialSummary:()=>buildTotalCostData(),markProjectDirty:()=>markDirty()});

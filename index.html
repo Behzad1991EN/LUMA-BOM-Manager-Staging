@@ -8,6 +8,39 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <section id="authRoot" class="auth-root" aria-labelledby="loginTitle">
+    <div class="login-card">
+      <img src="KSI-Logo.png" alt="KSI" class="login-logo" />
+      <div id="authLoginHeading" class="login-heading">
+        <p>LUMA single-axis tracker</p>
+        <h1 id="loginTitle">LUMA BOM Manager</h1>
+        <span>Sign in with your authorized account to continue.</span>
+      </div>
+      <div id="authLoading" class="auth-loading" role="status">Checking your session...</div>
+      <form id="loginForm" class="login-form" hidden>
+        <label for="loginEmail">Email</label>
+        <input id="loginEmail" name="email" type="email" autocomplete="username" required />
+        <label for="loginPassword">Password</label>
+        <input id="loginPassword" name="password" type="password" autocomplete="current-password" required />
+        <button id="loginSubmitBtn" type="submit">Sign In</button>
+        <p id="loginStatus" class="login-status" role="alert" aria-live="polite" hidden></p>
+      </form>
+      <form id="accountSetupForm" class="login-form account-setup-form" aria-labelledby="accountSetupTitle" hidden>
+        <div class="account-setup-heading">
+          <h2 id="accountSetupTitle">Complete Your Account</h2>
+          <p>Create a password for <strong id="accountSetupEmail"></strong>.</p>
+        </div>
+        <label for="newPassword">New Password</label>
+        <input id="newPassword" name="new-password" type="password" autocomplete="new-password" minlength="8" required />
+        <label for="confirmPassword">Confirm Password</label>
+        <input id="confirmPassword" name="confirm-password" type="password" autocomplete="new-password" minlength="8" required />
+        <button id="setPasswordBtn" type="submit">Set Password</button>
+        <p id="accountSetupStatus" class="login-status" role="alert" aria-live="polite" hidden></p>
+      </form>
+    </div>
+  </section>
+
+  <div id="appShell" hidden>
   <div id="sidebarScrim" class="sidebar-scrim" hidden></div>
   <aside id="appSidebar" class="sidebar" aria-label="Workspace and project menu">
     <div class="sidebar-mobile-header"><strong>Menu</strong><button id="mobileMenuCloseBtn" class="mobile-menu-close" type="button" aria-label="Close menu">&times;</button></div>
@@ -69,10 +102,17 @@
         <p>Use Inputs → Array Table → review selected arrays, BOM, support plates and tracker sketch.</p>
         <strong id="currentProjectHeader">Current Project: SAMPLE — Sample Project</strong>
       </div>
-      <img src="KSI-Logo.png" alt="KSI" class="logo" />
+      <div class="app-header-actions">
+        <img src="KSI-Logo.png" alt="KSI" class="logo" />
+        <div class="auth-session" aria-label="Signed-in account">
+          <span id="authenticatedUserEmail"></span>
+          <button id="logoutBtn" type="button">Sign Out</button>
+        </div>
+      </div>
     </header>
 
     <nav id="tabs" class="tabs" aria-label="Application tabs"></nav>
+    <div id="partMasterStatus" class="part-master-status" role="status" aria-live="polite" hidden></div>
     <div class="notebook-body">
       <section id="tabInputs" class="tab-page"></section>
       <section id="tabArray" class="tab-page"></section>
@@ -83,6 +123,8 @@
       <section id="tabPartMaster" class="tab-page"></section>
       <section id="tabSketch" class="tab-page"></section>
       <section id="tabAnalysis" class="tab-page"></section>
+      <section id="tabQuotation" class="tab-page"></section>
+      <section id="tabAdministration" class="tab-page"></section>
       <!-- Calculation Logic tab hidden; Part Master Calculation Note is sufficient for now. -->
     </div>
   </main>
@@ -90,7 +132,6 @@
   <div id="fixedHorizontalScroll" class="fixed-h-scroll" aria-hidden="true"><div id="fixedHorizontalScrollInner"></div></div>
 
   <input id="workspaceFileInput" type="file" accept=".luma,application/json" hidden />
-  <input id="partMasterFileInput" type="file" accept=".json,application/json" hidden />
 
   <div id="modalBackdrop" class="modal-backdrop" hidden>
     <div id="modalBox" class="modal-box" role="dialog" aria-modal="true">
@@ -99,10 +140,28 @@
       <div id="modalActions" class="modal-actions"></div>
     </div>
   </div>
+  </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="supabase-client.js"></script>
+  <script src="part-master-service.js"></script>
+  <script src="supplier-service.js"></script>
+  <script src="price-list-service.js"></script>
+  <script src="analysis-commercial.js"></script>
+  <script src="post-configuration-service.js"></script>
+  <script src="quotation-field-definitions.js"></script>
+  <script src="quotation-model.js"></script>
+  <script src="quotation-latex.js"></script>
+  <script src="quotation/compilers/quotation-compiler.js"></script>
+  <script src="quotation/compilers/swiftlatex-compiler.js"></script>
+  <script src="quotation-renderer.js"></script>
+  <script src="admin-price-lists.js"></script>
+  <script src="admin-part-master.js"></script>
+  <script src="admin-suppliers.js"></script>
   <script src="data.js"></script>
   <script src="engine.js"></script>
   <script src="xlsx-lite.js"></script>
   <script src="app.js"></script>
+  <script src="auth.js"></script>
 </body>
 </html>

@@ -96,21 +96,15 @@
     for(const [standard,name] of FASTENER_STANDARDS){ if(norm.includes(standard)) return name; }
     return null;
   }
-  function loadInternalPartMaster(){
-    const rows=(global.INTERNAL_PART_MASTER_RAW || []).map(raw => {
-      const record={...raw};
-      if(String(record.Category||'').toLowerCase().startsWith('fasteners')){
-        const readable = fastenerPartNameFromDescription(record.Description);
-        if(readable) record.Part = readable;
-      }
-      return record;
-    });
-    return normalizePartMasterData(PART_COLUMNS,rows).rows;
-  }
-
   const DEFAULT_INPUTS = Object.freeze({
     pv_power:'700',
     foundation_type:'Ramming',
+    foundation_method:'Ramming',
+    foundation_depth_mm:'2000',
+    main_post_profile:'HEA 140',
+    bearing_post_profile:'C',
+    project_country_type:'Italy',
+    project_country:'Italy',
     elevation_asl:'0',
     cad_blocks_available:'Yes',
     max_span_length:'7900',
@@ -838,6 +832,7 @@
     const columns=['No.',...displayBaseColumns,...(metadataEnabled?['Material','Weight']:[]),...qtyColumns,'Total Qty',...(contingencyEnabled?['Contingency (%)']:[])];
     const previewColumns=['No.',...displayBaseColumns,'Calculation Note'];
     const rows=[];
+    const errors=[];
     const notesByTag={},notesByPart={};
     const bomContext={
       soltrkVersion:normalizeSoltrkVersion(project?.soltrk_version),
@@ -853,8 +848,21 @@
         quantitiesByPv[pv]=asNumber(quantitiesByPv[pv],0)+asNumber(formula(scheduleRow,bomContext),0);
       });
       const resolvedKeywords=typeof keywords==='function'?keywords(bomContext):keywords;
-      const match=findPartMasterMatch(partMaster,resolvedKeywords,calculatedItem,categoryFallback);
-      if(!match) continue; // V3.40 authoritative Part Master.
+      const postKind=calculatedItem==='Main Post'?'Main Post':(calculatedItem==='Bearing Post'?'Bearing Post':'');
+      const postSelection=postKind&&global.LumaPostConfiguration
+        ? global.LumaPostConfiguration.selection(project,postKind)
+        : null;
+      const postResolution=postSelection
+        ? global.LumaPostConfiguration.resolveResult(partMaster,postSelection)
+        : null;
+      const match=postResolution
+        ? postResolution.part
+        : findPartMasterMatch(partMaster,resolvedKeywords,calculatedItem,categoryFallback);
+      if(!match){
+        if(postResolution?.status==='ambiguous') errors.push(global.LumaPostConfiguration.ambiguityMessage());
+        else if(postSelection) errors.push(global.LumaPostConfiguration.missingMessage(postSelection));
+        continue; // The Part Master is authoritative; never invent or substitute a part.
+      }
       if(note){
         const tagKey=normalizeText(match.TAG),partKey=normalizeText(match.Part);
         if(tagKey) notesByTag[tagKey]=note;
@@ -869,7 +877,10 @@
       if(totalQty<=0 && !quantityOverrideKey) continue;
       const row={};
       for(const column of baseColumns) row[column]=match[column] ?? '';
-      if(Object.prototype.hasOwnProperty.call(row,'Part')) row['Part Name']=row.Part;
+      if(Object.prototype.hasOwnProperty.call(row,'Part')){
+        const readableFastenerName=recordIsFastener(match)?fastenerPartNameFromDescription(match.Description):null;
+        row['Part Name']=readableFastenerName||row.Part;
+      }
       selectedPvs.forEach(pv=>{
         const value=asNumber(quantitiesByPv[pv],0);
         row[`${pv}-PV Qty`]=value?niceNumber(value):'';
@@ -913,14 +924,14 @@
       }
       for(const column of columns){ if(row[column]===null||row[column]===undefined||row[column]==='') row[column]=['Material','Weight'].includes(column)?'':0; }
     });
-    return {columns,previewColumns,rows,notesByTag,notesByPart};
+    return {columns,previewColumns,rows,notesByTag,notesByPart,errors,valid:errors.length===0};
   }
 
   function buildPartMasterPreview(partMaster,bomResult){
     return partMaster.map((record,index)=>{
       const row={'No.':index+1,'Part Name':record.Part??'',TAG:record.TAG??'',Description:record.Description??'','Part Number':record['Part Number']??'',Category:record.Category??'',Unit:record.Unit??'',Material:record.Material??'',Weight:record.Weight??''};
       const tag=normalizeText(record.TAG),part=normalizeText(record.Part);
-      row['Calculation Note']=bomResult.notesByTag[tag] ?? bomResult.notesByPart[part] ?? '';
+      row['Calculation Note']=bomResult.notesByTag[tag] ?? bomResult.notesByPart[part] ?? record['Calculation Note'] ?? '';
       row._part_master_index=index;
       return row;
     });
@@ -936,13 +947,13 @@
     const totalTrackers=schedule.reduce((sum,r)=>sum+asInt(r['Number of Trackers']),0);
     const totalModules=schedule.reduce((sum,r)=>sum+asInt(r['PV Modules Total']),0);
     const totalPower=schedule.reduce((sum,r)=>sum+asNumber(r['Estimated Power (MWp)']),0);
-    return {schedule,active,bearing,support,bom,partMasterPreview,kpis:{totalTrackers,totalModules,totalPower,bomItems:bom.rows.length,mode:getBomModeText(project)}};
+    return {schedule,active,bearing,support,bom,partMasterPreview,engineeringErrors:bom.errors||[],kpis:{totalTrackers,totalModules,totalPower,bomItems:bom.rows.length,mode:getBomModeText(project)}};
   }
 
   global.LumaEngine={
     PART_COLUMNS,DEFAULT_INPUTS,BOM_DEFINITIONS,BOM_DEFAULT_METADATA,ANEMOMETER_ELEVATION_THRESHOLD_M,ANEMOMETER_OPTIONS,
     normalizeText,asNumber,asInt,niceNumber,firstNonEmpty,ceilHalf,ceilUp,
-    fastenerPartNameFromDescription,loadInternalPartMaster,normalizePartMasterData,defaultTrackerQuantities,defaultManualParts,defaultBearingRule,normalizeBearingRule,BEARING_RULE_MODES,normalizeBearingMode,bearingRuleVariantKey,normalizeBearingRuleVariants,
+    fastenerPartNameFromDescription,normalizePartMasterData,defaultTrackerQuantities,defaultManualParts,defaultBearingRule,normalizeBearingRule,BEARING_RULE_MODES,normalizeBearingMode,bearingRuleVariantKey,normalizeBearingRuleVariants,
     getDesignInputs,calculateAutoPvModuleGap,getAnemometerSelection,cadBlocksAreAvailable,getBomModeText,getSpanLimits,estimateSpanCountForLength,
     calculateTrackerGeometry,getBearingRuleVariantsForPv,getBearingRuleForPv,getPositionsFromRule,classifyBearing,classifyBeamZoneForPosition,calculateEstimatedBearingPositions,calculateBearingLayoutForTracker,
     generateModuleRailPositionsForSide,closestRailIndicesAroundPosition,calculateModuleSupportPlatesForTracker,buildSchedule,buildBearingLayoutTable,buildModuleSupportLayoutTable,

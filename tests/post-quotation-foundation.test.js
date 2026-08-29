@@ -46,6 +46,7 @@ test('database migrations enforce central Part Master, admin writes, demo labels
 test('quotation model reads project, BOM, engineering, commercial, and customer sources once',()=>{
   const window={};
   const context=vm.createContext({window,Date,Number,String,Object,Array,Set,Map,Math});
+  vm.runInContext(read('currency-data.js'),context);
   vm.runInContext(read('quotation-field-definitions.js'),context);
   vm.runInContext(read('quotation-model.js'),context);
   const project={project_id:'p1',project_code:'P-1',project_name:'Project',inputs:{foundation_method:'Ramming',foundation_depth_mm:'2000',pv_module_width:'1134',pv_module_length:'2384',pv_power:'700'},quotation:{quotation_number:'Q-1',customer_company:'Client'}};
@@ -151,7 +152,7 @@ test('PV capacity and foundation controls are grouped in their requested input s
   const projectStart=app.indexOf('<h2 class="section-title">Project Inputs</h2>');
   const pvStart=app.indexOf('<h2 class="section-title">PV Module Inputs</h2>');
   const foundationStart=app.indexOf('<h2 class="section-title">Foundation Input</h2>');
-  const beamStart=app.indexOf('<h2 class="section-title">Main Beam Inputs</h2>');
+  const beamStart=app.indexOf('<h2 class="section-title">Main Tube Inputs</h2>');
   assert.ok(projectStart>=0&&projectStart<pvStart&&pvStart<foundationStart&&foundationStart<beamStart);
   const projectSection=app.slice(projectStart,pvStart);
   const pvSection=app.slice(pvStart,foundationStart);

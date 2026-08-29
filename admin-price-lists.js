@@ -122,7 +122,7 @@
       return `<tr class="price-list-row${selected ? ' row-selected' : ''}${priceList.active ? '' : ' price-list-inactive-row'}" data-price-list-id="${escapeHtml(priceList.id)}">
         <td><input type="radio" name="selectedPriceList" aria-label="Select ${escapeHtml(priceList.revision)}" ${selected ? 'checked' : ''}></td>
         <td>${escapeHtml(supplierName(priceList))}</td><td>${escapeHtml(priceList.category)}</td><td><strong>${escapeHtml(priceList.revision)}</strong></td>
-        <td>${escapeHtml(priceList.currency)}</td><td>${escapeHtml(priceList.valid_from || '—')}</td><td>${escapeHtml(priceList.valid_until || '—')}</td>
+        <td>${escapeHtml(global.LumaCurrencyData.display(priceList.currency))}</td><td>${escapeHtml(priceList.valid_from || '—')}</td><td>${escapeHtml(priceList.valid_until || '—')}</td>
         <td><span class="supplier-status ${priceList.active ? 'active' : 'inactive'}">${priceList.active ? 'Active' : 'Inactive'}</span></td>
         <td>${(priceList.price_list_items || []).length}</td><td>${escapeHtml(formatDate(priceList.updated_at))}</td>
       </tr>`;
@@ -170,7 +170,7 @@
     if (!state.root || !isAdmin()) return;
     state.root.innerHTML = `
       <div class="admin-subpage-nav">${backButton('Back to Administration')}</div>
-      <div class="supplier-page-header"><div><h2 class="table-title">Price Lists</h2><p class="table-subtitle">Versioned supplier prices. Historical revisions remain separate.</p></div><button class="export" type="button" data-price-list-add>Add Price List</button></div>
+      <div class="supplier-page-header"><div><h2 class="table-title">Supplier Price Lists</h2><p class="table-subtitle">Manage supplier/category price-list revisions.</p></div><button class="export" type="button" data-price-list-add>Add Price List</button></div>
       ${state.notice ? `<p class="supplier-notice ${escapeHtml(state.notice.kind)}" role="status">${escapeHtml(state.notice.message)}</p>` : ''}
       <div class="price-list-filters">
         <label><span>Supplier</span><select data-price-list-supplier-filter><option value="">All Suppliers</option>${state.suppliers.map(supplier => `<option value="${escapeHtml(supplier.id)}" ${supplier.id === state.supplierFilter ? 'selected' : ''}>${escapeHtml(`${supplier.supplier_code} — ${supplier.supplier_name}`)}</option>`).join('')}</select></label>
@@ -203,12 +203,26 @@
     return supplierCategories(supplierId).map(category => `<option value="${escapeHtml(category)}" ${category === selectedCategory ? 'selected' : ''}>${escapeHtml(category)}</option>`).join('');
   }
 
+  function masterItemForTag(tag) {
+    const normalized = String(tag || '').trim().toLowerCase();
+    return state.partMasterItems.find(item => item.tag.toLowerCase() === normalized) || null;
+  }
+
+  function itemMatchesCategory(item, category) {
+    return global.LumaCommercialCategories.partMatchesCategory(item, category);
+  }
+
   function renderItemPicker() {
     const select = state.root?.querySelector('[data-price-item-picker]');
     if (!select) return;
+    const category = state.root?.querySelector('#priceListForm')?.elements.category.value || '';
     const used = new Set(state.editorItems.map(item => item.tag.toLowerCase()));
-    const available = state.partMasterItems.filter(item => !used.has(item.tag.toLowerCase()));
-    select.innerHTML = `<option value="">Select TAG from Part Master</option>${available.map(item => `<option value="${escapeHtml(item.tag)}">${escapeHtml(`${item.tag} — ${item.description || item.category || 'Part Master item'}`)}</option>`).join('')}`;
+    const available = state.partMasterItems.filter(item => category && itemMatchesCategory(item, category) && !used.has(item.tag.toLowerCase()));
+    const placeholder = category && !available.length ? 'No matching Part Master TAGs' : 'Select TAG from Part Master';
+    select.innerHTML = `<option value="">${placeholder}</option>${available.map(item => `<option value="${escapeHtml(item.tag)}">${escapeHtml(`${item.tag} — ${item.description || item.category || 'Part Master item'}`)}</option>`).join('')}`;
+    select.disabled = !category || !available.length;
+    const addButton = state.root?.querySelector('[data-price-item-add]');
+    if (addButton) addButton.disabled = select.disabled;
   }
 
   function itemRowsHtml() {
@@ -231,10 +245,38 @@
   function addSelectedPartMasterItem() {
     const picker = state.root.querySelector('[data-price-item-picker]');
     const item = state.partMasterItems.find(candidate => candidate.tag === picker.value);
-    if (!item) return;
-    state.editorItems.push({tag: item.tag, description: item.description, unit: item.unit, unit_price: null});
+    const category = state.root.querySelector('#priceListForm')?.elements.category.value || '';
+    if (!item || !itemMatchesCategory(item, category)) return;
+    state.editorItems.push({tag: item.tag, description: item.description, unit: item.unit, unit_price: null, preserved:false});
     renderItemsTable();
     renderItemPicker();
+  }
+
+  function confirmCategoryChange(form, previousSupplierId, previousCategory) {
+    const nextCategory = form.elements.category.value;
+    const incompatible = state.editorItems.filter(item => {
+      const master = masterItemForTag(item.tag);
+      return !master || !itemMatchesCategory(master, nextCategory);
+    });
+    if (incompatible.length && !confirm(`Changing Category to "${nextCategory || 'none'}" will remove ${incompatible.length} incompatible Price List item(s).\n\nContinue?`)) {
+      form.elements.supplier_id.value = previousSupplierId;
+      form.elements.category.innerHTML = categoryOptions(previousSupplierId, previousCategory);
+      form.elements.category.value = previousCategory;
+      renderItemPicker();
+      return false;
+    }
+    if (incompatible.length) {
+      const incompatibleTags = new Set(incompatible.map(item => item.tag.toLowerCase()));
+      state.editorItems = state.editorItems.filter(item => !incompatibleTags.has(item.tag.toLowerCase()));
+      renderItemsTable();
+      setFormStatus(`${incompatible.length} incompatible item(s) removed after the Category change.`);
+    } else {
+      setFormStatus('');
+    }
+    form.dataset.previousSupplierId = form.elements.supplier_id.value;
+    form.dataset.previousCategory = nextCategory;
+    renderItemPicker();
+    return true;
   }
 
   function renderForm(source = null, mode = 'create') {
@@ -243,7 +285,7 @@
     const duplicate = mode === 'duplicate';
     const supplierId = source?.supplier_id || state.suppliers.find(supplier => supplier.active !== false)?.id || '';
     const category = source?.category || supplierCategories(supplierId)[0] || '';
-    state.editorItems = (source?.price_list_items || []).map(item => ({tag: item.tag, description: item.description || '', unit: item.unit || '', unit_price: item.unit_price}));
+    state.editorItems = (source?.price_list_items || []).map(item => ({tag: item.tag, description: item.description || '', unit: item.unit || '', unit_price: item.unit_price, preserved:editing}));
     const title = editing ? 'Edit Price List' : duplicate ? 'Duplicate Price List' : 'Add Price List';
     state.root.innerHTML = `
       <div class="admin-subpage-nav">${backButton('Back to Price Lists')}</div>
@@ -253,7 +295,7 @@
           <label class="supplier-form-field"><span>Supplier</span><select name="supplier_id" required ${editing ? 'disabled' : ''}><option value="">Select Supplier</option>${supplierOptions(supplierId)}</select></label>
           <label class="supplier-form-field"><span>Category</span><select name="category" required ${editing ? 'disabled' : ''}>${categoryOptions(supplierId, category)}</select></label>
           <label class="supplier-form-field"><span>Revision</span><input name="revision" required value="${escapeHtml(duplicate ? '' : source?.revision || '')}" ${editing ? 'readonly' : ''} placeholder="2026-R01"></label>
-          <label class="supplier-form-field"><span>Currency</span><select name="currency" required ${editing ? 'disabled' : ''}>${global.LumaPriceListService.CURRENCIES.map(currency => `<option ${currency === (source?.currency || 'EUR') ? 'selected' : ''}>${currency}</option>`).join('')}</select></label>
+          <label class="supplier-form-field"><span>Currency</span><select name="currency" required ${editing ? 'disabled' : ''}>${global.LumaCurrencyData.OPTIONS.map(currency => `<option value="${currency.code}" ${currency.code === (source?.currency || 'EUR') ? 'selected' : ''}>${escapeHtml(global.LumaCurrencyData.optionLabel(currency.code))}</option>`).join('')}</select></label>
           <label class="supplier-form-field"><span>Valid From</span><input name="valid_from" type="date" value="${escapeHtml(source?.valid_from || '')}"></label>
           <label class="supplier-form-field"><span>Valid Until</span><input name="valid_until" type="date" value="${escapeHtml(source?.valid_until || '')}"></label>
           <label class="supplier-form-field supplier-form-wide"><span>Notes</span><textarea name="notes" rows="3">${escapeHtml(source?.notes || '')}</textarea></label>
@@ -267,14 +309,20 @@
       </form>`;
 
     const form = state.root.querySelector('#priceListForm');
+    form.dataset.previousSupplierId = supplierId;
+    form.dataset.previousCategory = category;
     renderItemPicker();
     renderItemsTable();
     state.root.querySelector('[data-price-list-back]').addEventListener('click', renderList);
     state.root.querySelector('[data-price-list-cancel]').addEventListener('click', renderList);
     state.root.querySelector('[data-price-item-add]').addEventListener('click', addSelectedPartMasterItem);
     form.elements.supplier_id.addEventListener('change', () => {
+      const previousSupplierId = form.dataset.previousSupplierId || '';
+      const previousCategory = form.dataset.previousCategory || '';
       form.elements.category.innerHTML = categoryOptions(form.elements.supplier_id.value);
+      confirmCategoryChange(form, previousSupplierId, previousCategory);
     });
+    form.elements.category.addEventListener('change', () => confirmCategoryChange(form, form.dataset.previousSupplierId || '', form.dataset.previousCategory || ''));
     form.addEventListener('submit', event => saveForm(event, editing ? source : null));
     (duplicate ? form.elements.revision : form.elements.supplier_id).focus();
   }
@@ -320,6 +368,8 @@
       if (!tag) throw new Error('TAG is required for every item.');
       if (tags.has(tag)) throw new Error('The same TAG cannot appear twice in one Price List.');
       tags.add(tag);
+      const master = masterItemForTag(tag);
+      if (!item.preserved && (!master || !itemMatchesCategory(master, header.category))) throw new Error(`${tag} does not belong to the selected Price List Category.`);
       const rawPrice = String(item.unit_price ?? '').trim();
       if (rawPrice && !/^(?:\d+\.?\d*|\.\d+)$/.test(rawPrice)) throw new Error(`Enter a valid Unit Price for ${tag}.`);
       if (rawPrice && Number(rawPrice) < 0) throw new Error(`Unit Price cannot be negative for ${tag}.`);

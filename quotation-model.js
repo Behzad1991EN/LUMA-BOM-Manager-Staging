@@ -43,9 +43,10 @@
     const legacyName = String(source.contact_name || '').trim().split(/\s+/).filter(Boolean);
     return {
       ...DEFAULTS,
-      currency: settings.currency || DEFAULTS.currency,
+      currency: global.LumaCurrencyData.normalizeCode(settings.currency, DEFAULTS.currency),
       revision: settings.revision || DEFAULTS.revision,
       ...source,
+      currency: global.LumaCurrencyData.normalizeCode(source.currency, global.LumaCurrencyData.normalizeCode(settings.currency, DEFAULTS.currency)),
       client_first_name: source.client_first_name || legacyName.shift() || '',
       client_last_name: source.client_last_name || legacyName.join(' '),
       template_fields: {...fieldRegistry.templateDefaults(), ...(source.template_fields && typeof source.template_fields === 'object' ? source.template_fields : {})},

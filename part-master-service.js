@@ -6,6 +6,9 @@
   };
   const client = () => global.LumaSupabase.getClient();
   const text = value => String(value ?? '').trim();
+  const normalizedMasterText = value => text(value)
+    .replace(/Main\s+Beam/gi, 'Main Tube')
+    .replace(/13\s*[x×]\s*43/gi, '13 × 43');
   const normalized = value => text(value).toLowerCase().replace(/\s+/g, ' ');
 
   function publicMessage(error) {
@@ -20,13 +23,13 @@
   }
 
   const toAppRecord = row => Object.freeze({
-    id:row.id, Part:row.part, TAG:row.tag || '', Description:row.description,
-    'Part Number':row.part_number || '', Category:row.category, Unit:row.unit || '',
-    Material:row.material || '', Weight:row.weight ?? '',
-    'Calculation Note':row.calculation_note || '', Active:row.active !== false,
+    id:row.id, Part:normalizedMasterText(row.part), TAG:row.tag || '', Description:normalizedMasterText(row.description),
+    'Part Number':row.part_number || '', Category:normalizedMasterText(row.category), Unit:row.unit || '',
+    Material:normalizedMasterText(row.material), Weight:row.weight ?? '',
+    'Calculation Note':normalizedMasterText(row.calculation_note), Active:row.active !== false,
     'Post Kind':row.post_kind || '', 'Foundation Method':row.foundation_method || '',
-    'Foundation Depth mm':row.foundation_depth_mm ?? '', 'Profile Type':row.profile_type || '',
-    'Profile Details':row.profile_details || '', 'Overall Length mm':row.overall_length_mm ?? '',
+    'Foundation Depth mm':row.foundation_depth_mm ?? '', 'Profile Type':normalizedMasterText(row.profile_type),
+    'Profile Details':normalizedMasterText(row.profile_details), 'Overall Length mm':row.overall_length_mm ?? '',
     created_at:row.created_at || '', created_by:row.created_by || '',
     updated_at:row.updated_at || '', updated_by:row.updated_by || '',
   });
@@ -105,15 +108,15 @@
       throw new Error('Part, Description, and Category are required.');
     }
     return {
-      part:text(record.Part), tag:tag || null, description:text(record.Description),
-      part_number:text(record['Part Number']) || null, category:text(record.Category),
-      unit:text(record.Unit) || null, material:text(record.Material) || null,
-      weight:numberOrNull(record.Weight), calculation_note:text(record['Calculation Note']) || null,
+      part:normalizedMasterText(record.Part), tag:tag || null, description:normalizedMasterText(record.Description),
+      part_number:text(record['Part Number']) || null, category:normalizedMasterText(record.Category),
+      unit:text(record.Unit) || null, material:normalizedMasterText(record.Material) || null,
+      weight:numberOrNull(record.Weight), calculation_note:normalizedMasterText(record['Calculation Note']) || null,
       active:record.Active !== false, post_kind:postKind,
       foundation_method:postKind ? text(record['Foundation Method']) || null : null,
       foundation_depth_mm:postKind ? numberOrNull(record['Foundation Depth mm']) : null,
-      profile_type:postKind ? text(record['Profile Type']) || null : null,
-      profile_details:postKind ? text(record['Profile Details']) || null : null,
+      profile_type:postKind ? normalizedMasterText(record['Profile Type']) || null : null,
+      profile_details:postKind ? normalizedMasterText(record['Profile Details']) || null : null,
       overall_length_mm:postKind ? numberOrNull(record['Overall Length mm']) : null,
     };
   }

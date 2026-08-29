@@ -45,6 +45,67 @@ test('Part Master migration provides schema, known post attributes, audit, and R
   assert.match(migration, /where tag in \('k001120', 'k060356'\)/);
 });
 
+test('terminology migration updates Main Tube labels, connection categories, and 13 × 43 formatting', () => {
+  const migration = read('supabase/migrations/20260829000700_update_main_tube_and_fastener_categories.sql');
+  const app = read('app.js');
+  const partService = read('part-master-service.js');
+  assert.match(migration, /Main Tube/);
+  assert.match(migration, /Fasteners \/ Slew Drive Seat - Main Post/);
+  assert.match(migration, /Fasteners \/ Slew Drive Seat - Slew Drive/);
+  for (const partNumber of ['FBB8205555A000','FNC8200000A000','FOAD203700A000','FOCF200000B000','FBB8188080A000','FODC184400A000','FOCF180000B000','FNF8180000A000','FNE8180000A000']) {
+    assert.match(migration, new RegExp(partNumber));
+  }
+  assert.match(migration, /13 × 43/);
+  assert.match(partService, /replace\(\/Main\\s\+Beam\/gi, 'Main Tube'\)/);
+  assert.match(partService, /replace\(\/13\\s\*\[x×\]\\s\*43\/gi, '13 × 43'\)/);
+  assert.doesNotMatch(app, /Main Beam/i);
+});
+
+test('material and weight migration updates all 20 supplied Part Master TAGs', () => {
+  const migration = read('supabase/migrations/20260829000800_add_part_master_materials_and_weights.sql');
+  const expected = new Map([
+    ['k050346', ['1.0045 (S355JR)', '84.16']],
+    ['k001162', ['1.0045 (S355JR)', '9.62']],
+    ['k060326', ['1.8902 (S420JR)', '25.26']],
+    ['k001119', ['1.0045 (S355JR)', '5.39']],
+    ['k001141', ['1.8902 (S420GD)', '138.63']],
+    ['k081150', ['1.8902 (S420GD)', '130.85']],
+    ['k031180', ['1.8902 (S420GD)', '122.40']],
+    ['k030870', ['1.8902 (S420GD)', '89.51']],
+    ['k001147', ['1.0529 (S350GD)', '7.10']],
+    ['k001098', ['1.8902 (S420GD)', '2.19']],
+    ['k001145', ['1.8902 (S420GD)', '1.84']],
+    ['k001101', ['1.0529 (S350GD)', '0.19']],
+    ['k001099', ['1.0045 (S355JR)', '0.24']],
+    ['k001573', ['1.0038 (S235JR)', '0.23']],
+    ['k001389', ['DX51D', '0.55']],
+    ['k001397', ['DX51D', '0.36']],
+    ['k001505', ['DX51D', '1.12']],
+    ['k001568', ['DX51D', '1.12']],
+    ['k001511', ['DX51D', '0.21']],
+    ['k001538', ['DX51D', '0.22']],
+  ]);
+  assert.match(migration, /update public\.part_master as part/);
+  assert.match(migration, /where lower\(part\.tag\) = supplied\.tag/);
+  for (const [tag, [material, weight]] of expected) {
+    assert.ok(migration.includes(`('${tag}', '${material}', ${weight}::numeric)`), `${tag} must keep its supplied material and weight`);
+  }
+});
+
+test('calculation-note migration stores the supplied Part Master formulas by stable identity', () => {
+  const migration = read('supabase/migrations/20260829000900_add_part_master_calculation_notes.sql');
+  const taggedNotes = [...migration.matchAll(/\('(k\d{6})', '([^']*)'\)/g)];
+  assert.equal(taggedNotes.length, 72);
+  assert.match(migration, /\('k050346', 'Total Trackers QTY'\)/);
+  assert.match(migration, /\('k001099', 'Temporary formula for K001099 \/ PLUSS00173BZ00: \(PV modules − 2\) \+ \(2 × Bearing 110\) \+ \(6 × Bearing 100\), per tracker'\)/);
+  assert.match(migration, /\('k001013', '= k001388 = 8 × Main Tube B'\)/);
+  assert.match(migration, /\('FNF8180000A000', '2 × Main Post'\)/);
+  assert.match(migration, /\('FNE8180000A000', '2 × Main Post'\)/);
+  assert.match(migration, /calculation_note = 'PV Modules per Tracker × Number of Trackers'/);
+  assert.doesNotMatch(migration, /Main Beam/i);
+  assert.doesNotMatch(migration, /k001568|k001549/);
+});
+
 test('Part Master service caches one database load and resolves exact active post configurations', async () => {
   const rows = [
     {id:'1',part:'Main Post',tag:'k001152',description:'Main',category:'Steel Structure',active:true,post_kind:'Main Post',foundation_method:'Ramming',foundation_depth_mm:2000,profile_type:'HEA 140'},
@@ -86,11 +147,21 @@ test('existing BOM quantities are preserved while known post TAGs resolve from d
   assert.equal(deeper.bom.rows.find(row => row.TAG === 'k060356')['Total Qty'], 2);
 });
 
-test('Part Master UI is rendered only for admins and supports deactivate/reactivate', () => {
+test('Part Master editor exists only inside Administration and supports deactivate/reactivate', () => {
+  const html = read('index.html');
   const app = read('app.js');
   const admin = read('admin-part-master.js');
-  assert.match(app, /isAdmin\?\.\(\)\?\[\.\.\.TABS,PART_MASTER_ADMIN_TAB,ADMINISTRATION_TAB\]:TABS/);
+  const home = read('admin-suppliers.js');
+  assert.doesNotMatch(html, /id="tabPartMaster"/);
+  assert.doesNotMatch(app, /PART_MASTER_ADMIN_TAB|tabPartMaster|function renderPartMaster/);
+  assert.match(app, /isAdmin\?\.\(\)\?\[\.\.\.TABS,ADMINISTRATION_TAB\]:TABS/);
+  assert.match(home, /data-admin-page="part-master"/);
   assert.match(admin, /Reactivate Selected/);
   assert.match(admin, /setPartActive/);
+  assert.match(admin, /key:'__number', label:'No\.'/);
+  assert.match(admin, /data-pm-sort/);
+  assert.match(admin, /data-pm-filter/);
+  assert.match(admin, /label:'Material'/);
+  assert.match(admin, /label:'Weight \(kg\)'/);
   assert.doesNotMatch(admin, /\.delete\(/);
 });

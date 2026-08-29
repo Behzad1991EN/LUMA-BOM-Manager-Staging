@@ -105,6 +105,8 @@
     bearing_post_profile:'C',
     project_country_type:'Italy',
     project_country:'Italy',
+    destination_country:'Italy',
+    delivery_point:'Site',
     elevation_asl:'0',
     cad_blocks_available:'Yes',
     max_span_length:'7900',
@@ -245,7 +247,7 @@
     const southGaps = Math.max(southModules-1,0);
     const trackerType = pvCount > 40 ? 'Long' : 'Short';
     const firstPieceLength = trackerType === 'Long' ? d.main_beam_a_length : d.main_beam_connection_length;
-    const firstPieceName = trackerType === 'Long' ? 'Main Beam A' : 'Slew Drive Connection';
+    const firstPieceName = trackerType === 'Long' ? 'Main Tube A' : 'Slew Drive Connection';
     const zoneAEnd = d.mid_plane_to_beam_a + firstPieceLength;
     const zoneBEnd = zoneAEnd - d.overlap_ab + d.main_beam_b_length;
     const baseUntilC = zoneBEnd - d.overlap_bc;
@@ -253,7 +255,7 @@
     function sideGeometry(modulesOnSide){
       const gapsOnSide = Math.max(modulesOnSide-1,0);
       const requiredSide = d.motor_gap/2 + modulesOnSide*d.pv_module_width + gapsOnSide*d.pv_module_gap + d.target_end_gap;
-      // Current rule: C is not required when the required envelope ends within Beam B.
+      // Current rule: C is not required when the required envelope ends within Tube B.
       const mainCRequired = requiredSide <= zoneBEnd ? 0 : requiredSide - baseUntilC;
       let stock, stockLength;
       if(mainCRequired <= 0){ stock='Not required'; stockLength=0; }
@@ -286,21 +288,21 @@
       'Zone A End (120)':zoneAEnd,
       'Zone B End (110)':zoneBEnd,
       'Base Until C':baseUntilC,
-      'Main Beam C Start from Midplane':baseUntilC,
-      'Main Beam C Required Length':isOddTracker?`N:${niceNumber(north.main_c_required)} / S:${niceNumber(south.main_c_required)}`:north.main_c_required,
-      'Main Beam C Required Length North':north.main_c_required,
-      'Main Beam C Required Length South':south.main_c_required,
-      'Main Beam C Stock Suggestion':isOddTracker?`N:${north.stock} / S:${south.stock}`:north.stock,
-      'Main Beam C Stock Suggestion North':north.stock,
-      'Main Beam C Stock Suggestion South':south.stock,
-      'Main Beam C Stock Length North':north.stock_length,
-      'Main Beam C Stock Length South':south.stock_length,
-      'Main Beam C Actual End North from Midplane':north.main_c_actual_end,
-      'Main Beam C Actual End South from Midplane':south.main_c_actual_end,
+      'Main Tube C Start from Midplane':baseUntilC,
+      'Main Tube C Required Length':isOddTracker?`N:${niceNumber(north.main_c_required)} / S:${niceNumber(south.main_c_required)}`:north.main_c_required,
+      'Main Tube C Required Length North':north.main_c_required,
+      'Main Tube C Required Length South':south.main_c_required,
+      'Main Tube C Stock Suggestion':isOddTracker?`N:${north.stock} / S:${south.stock}`:north.stock,
+      'Main Tube C Stock Suggestion North':north.stock,
+      'Main Tube C Stock Suggestion South':south.stock,
+      'Main Tube C Stock Length North':north.stock_length,
+      'Main Tube C Stock Length South':south.stock_length,
+      'Main Tube C Actual End North from Midplane':north.main_c_actual_end,
+      'Main Tube C Actual End South from Midplane':south.main_c_actual_end,
       // These remain tracker-side physical ends, matching the current bearing classification.
-      'Main Beam C End from Midplane':Math.max(north.end,south.end),
-      'Main Beam C End North from Midplane':north.end,
-      'Main Beam C End South from Midplane':south.end,
+      'Main Tube C End from Midplane':Math.max(north.end,south.end),
+      'Main Tube C End North from Midplane':north.end,
+      'Main Tube C End South from Midplane':south.end,
       'Tracker Length (mm)':trackerLength,
       'Calculated End Gap':isOddTracker?`N:${niceNumber(north.end_gap)} / S:${niceNumber(south.end_gap)}`:north.end_gap,
       'Calculated End Gap North':north.end_gap,
@@ -360,17 +362,17 @@
     const distance=Math.abs(positionMm);
     const zoneAEnd=asNumber(geometry['Zone A End (120)'],0);
     const zoneBEnd=asNumber(geometry['Zone B End (110)'],0);
-    const zoneCEnd=positionMm<0?asNumber(geometry['Main Beam C End South from Midplane'] ?? geometry['Main Beam C End from Midplane'],0):asNumber(geometry['Main Beam C End North from Midplane'] ?? geometry['Main Beam C End from Midplane'],0);
-    if(distance<=zoneAEnd) return ['Main Beam A / Connection','Bearing 120','OK'];
-    if(distance<=zoneBEnd) return ['Main Beam B 110','Bearing 110','OK'];
-    if(distance<=zoneCEnd) return ['Main Beam C 100','Bearing 100','OK'];
+    const zoneCEnd=positionMm<0?asNumber(geometry['Main Tube C End South from Midplane'] ?? geometry['Main Tube C End from Midplane'],0):asNumber(geometry['Main Tube C End North from Midplane'] ?? geometry['Main Tube C End from Midplane'],0);
+    if(distance<=zoneAEnd) return ['Main Tube A / Connection','Bearing 120','OK'];
+    if(distance<=zoneBEnd) return ['Main Tube B 110','Bearing 110','OK'];
+    if(distance<=zoneCEnd) return ['Main Tube C 100','Bearing 100','OK'];
     return ['Outside Tracker','Check input','Warning'];
   }
   function classifyBeamZoneForPosition(geometry,positionMm){
     const distance=Math.abs(positionMm);
     const zoneAEnd=asNumber(geometry['Zone A End (120)'],0);
     const zoneBEnd=asNumber(geometry['Zone B End (110)'],0);
-    const zoneCEnd=positionMm<0?asNumber(geometry['Main Beam C End South from Midplane'] ?? geometry['Main Beam C End from Midplane'],0):asNumber(geometry['Main Beam C End North from Midplane'] ?? geometry['Main Beam C End from Midplane'],0);
+    const zoneCEnd=positionMm<0?asNumber(geometry['Main Tube C End South from Midplane'] ?? geometry['Main Tube C End from Midplane'],0):asNumber(geometry['Main Tube C End North from Midplane'] ?? geometry['Main Tube C End from Midplane'],0);
     if(distance<=zoneAEnd) return ['A / 120',0];
     if(distance<=zoneBEnd) return ['B / 110',1];
     if(distance<=zoneCEnd) return ['C / 100',2];
@@ -612,10 +614,10 @@
     if(!fastItem && fastRecord) return false;
     if(normalizedItem==='pvmodule') return normalizedRecord.includes('pvmodule')||normalizedRecord.includes('solarmodule');
     if(normalizedItem==='bearingpost') return !normalizedRecord.includes('adapter')&&!normalizedRecord.includes('head')&&(normalizedRecord.includes('bearingpost')||normalizedRecord.includes('lateralpile'));
-    if(normalizedItem==='mainbeama') return !normalizedRecord.includes('connection')&&(normalizedRecord.includes('mainbeama')||normalizedRecord.includes('120x120'));
-    if(normalizedItem==='mainbeamclong'||normalizedItem==='mainbeamcshort'){
-      if(!normalizedRecord.includes('mainbeamc')&&!normalizedRecord.includes('100x100')) return false;
-      return normalizedItem==='mainbeamclong'?(normalizedRecord.includes('long')||normalizedRecord.includes('11800')):(normalizedRecord.includes('short')||normalizedRecord.includes('8700'));
+    if(normalizedItem==='maintubea') return !normalizedRecord.includes('connection')&&(normalizedRecord.includes('maintubea')||normalizedRecord.includes('mainbeama')||normalizedRecord.includes('120x120'));
+    if(normalizedItem==='maintubeclong'||normalizedItem==='maintubecshort'){
+      if(!normalizedRecord.includes('maintubec')&&!normalizedRecord.includes('mainbeamc')&&!normalizedRecord.includes('100x100')) return false;
+      return normalizedItem==='maintubeclong'?(normalizedRecord.includes('long')||normalizedRecord.includes('11800')):(normalizedRecord.includes('short')||normalizedRecord.includes('8700'));
     }
     if(normalizedItem==='slewdrive') return !normalizedRecord.includes('seat')&&!normalizedRecord.includes('connection')&&(normalizedRecord.includes('slewingdrive')||normalizedRecord.includes('slewdrive'));
     if(normalizedItem==='limitswitch') return !normalizedRecord.includes('holder')&&!normalizedRecord.includes('trigger')&&!normalizedRecord.includes('frame')&&normalizedRecord.includes('limitswitch');
@@ -655,7 +657,7 @@
       }
       return null;
     }
-    const generic=new Set(['module','rail','bearing','post','beam','main','drive','holder','switch','box']);
+    const generic=new Set(['module','rail','bearing','post','beam','tube','main','drive','holder','switch','box']);
     const normalizedKeywords=keywords.map(normalizeText).filter((nk,i)=>nk&&!generic.has(nk)&&!/^k\d{6}$/.test(keywords[i].toLowerCase()));
     let best=null,bestScore=0;
     for(const record of partMaster){
@@ -677,6 +679,10 @@
     mainbeamb:Object.freeze({Material:'1.8902 (S420GD)',Weight:130.85}),
     mainbeamclong:Object.freeze({Material:'1.8902 (S420GD)',Weight:122.4}),
     mainbeamcshort:Object.freeze({Material:'1.8902 (S420GD)',Weight:89.51}),
+    maintubea:Object.freeze({Material:'1.8902 (S420GD)',Weight:138.63}),
+    maintubeb:Object.freeze({Material:'1.8902 (S420GD)',Weight:130.85}),
+    maintubeclong:Object.freeze({Material:'1.8902 (S420GD)',Weight:122.4}),
+    maintubecshort:Object.freeze({Material:'1.8902 (S420GD)',Weight:89.51}),
     slewdriveconnection:Object.freeze({Material:'1.0529 (S350GD)',Weight:7.1}),
     hatrail:Object.freeze({Material:'1.8902 (S420GD)',Weight:2.19}),
     zrail:Object.freeze({Material:'1.8902 (S420GD)',Weight:1.84}),
@@ -744,16 +750,16 @@
     ['Slew Drive Seat',r=>2*asInt(r['Number of Trackers']),['slew drive seat','slew seat'],'Drive / Slew','2 × Main Post'],
     ['Bearing Post',r=>asInt(r['Bearing Posts / Tracker'])*asInt(r['Number of Trackers']),['bearing post','lateral pile','c 160'],'Structure / Posts','Calculated from bearing distance rules'],
     ['Bearing Adapter',r=>asInt(r['Bearing Posts / Tracker'])*asInt(r['Number of Trackers']),['bearing adapter','adapter bearing','lateral pile head'],'Drive / Bearing','Bearing Post'],
-    ['Main Beam A',r=>r['Tracker Type']==='Long'?2*asInt(r['Number of Trackers']):0,['main beam a','120x120'],'Main Beams','Long trackers only; 2 per tracker'],
-    ['Main Beam B',r=>2*asInt(r['Number of Trackers']),['main beam b','110x110'],'Main Beams','2 per tracker'],
-    ['Main Beam C - Long',r=>((asNumber(r['Main Beam C Required Length North'])>0&&String(r['Main Beam C Stock Suggestion North']).includes('11800')?1:0)+(asNumber(r['Main Beam C Required Length South'])>0&&String(r['Main Beam C Stock Suggestion South']).includes('11800')?1:0))*asInt(r['Number of Trackers']),['main beam c','100x100','11800','long'],'Main Beams','Counted only when required length > 0; per tracker side; odd trackers may have different north/south C length'],
-    ['Main Beam C - Short',r=>((asNumber(r['Main Beam C Required Length North'])>0&&String(r['Main Beam C Stock Suggestion North']).includes('8700')?1:0)+(asNumber(r['Main Beam C Required Length South'])>0&&String(r['Main Beam C Stock Suggestion South']).includes('8700')?1:0))*asInt(r['Number of Trackers']),['main beam c','100x100','8700','short'],'Main Beams','Counted only when required length > 0; per tracker side; odd trackers may have different north/south C length'],
-    ['Slew Drive Connection',r=>r['Tracker Type']!=='Long'?2*asInt(r['Number of Trackers']):0,['slew drive connection','beam connection'],'Main Beams','Short trackers only; 2 per tracker'],
+    ['Main Tube A',r=>r['Tracker Type']==='Long'?2*asInt(r['Number of Trackers']):0,['main tube a','main beam a','120x120'],'Main Tubes','Long trackers only; 2 per tracker'],
+    ['Main Tube B',r=>2*asInt(r['Number of Trackers']),['main tube b','main beam b','110x110'],'Main Tubes','2 per tracker'],
+    ['Main Tube C - Long',r=>((asNumber(r['Main Tube C Required Length North'])>0&&String(r['Main Tube C Stock Suggestion North']).includes('11800')?1:0)+(asNumber(r['Main Tube C Required Length South'])>0&&String(r['Main Tube C Stock Suggestion South']).includes('11800')?1:0))*asInt(r['Number of Trackers']),['main tube c','main beam c','100x100','11800','long'],'Main Tubes','Counted only when required length > 0; per tracker side; odd trackers may have different north/south C length'],
+    ['Main Tube C - Short',r=>((asNumber(r['Main Tube C Required Length North'])>0&&String(r['Main Tube C Stock Suggestion North']).includes('8700')?1:0)+(asNumber(r['Main Tube C Required Length South'])>0&&String(r['Main Tube C Stock Suggestion South']).includes('8700')?1:0))*asInt(r['Number of Trackers']),['main tube c','main beam c','100x100','8700','short'],'Main Tubes','Counted only when required length > 0; per tracker side; odd trackers may have different north/south C length'],
+    ['Slew Drive Connection',r=>r['Tracker Type']!=='Long'?2*asInt(r['Number of Trackers']):0,['slew drive connection','tube connection','beam connection'],'Main Tubes','Short trackers only; 2 per tracker'],
     ['Hat rail',r=>Math.max(asInt(r['PV Modules per Tracker'])-2,0)*asInt(r['Number of Trackers']),['hat rail','hatrail','pv rail 790x75'],'Module Rails / Support','PV Modules - 2 per tracker'],
     ['Z rail',r=>4*asInt(r['Number of Trackers']),['z rail','zrail','end pv rail'],'Module Rails / Support','4 per tracker'],
     ['Module Rail Fixing Part',r=>(Math.max(asInt(r['PV Modules per Tracker'])-2,0)+4+1)*asInt(r['Number of Trackers']),['module rail fixing','rail fixing','fixing part','rail lower clamp','lower clamp'],'Module Rails / Support','Hat Rail + Z Rail + 1 per tracker'],
     // Previous K001099 / PLUSS00173BZ00 calculation (kept for future restoration):
-    // ['Module Rail Support Plate',r=>asInt(r['Module Support Plates / Tracker'])*asInt(r['Number of Trackers']),['k001099','module support plate','support plate','module rail support plate'],'Module Rails / Support','Existing formula kept: rail-by-rail bearing influence, taper, and main beam height compensation'],
+    // ['Module Rail Support Plate',r=>asInt(r['Module Support Plates / Tracker'])*asInt(r['Number of Trackers']),['k001099','module support plate','support plate','module rail support plate'],'Module Rails / Support','Existing formula kept: rail-by-rail bearing influence, taper, and main tube height compensation'],
     // Temporary calculation: PV modules - 2 + 2 × Bearing 110 + 6 × Bearing 100.
     ['Module Rail Support Plate',r=>asInt(r['Module Support Plates / Tracker'])*asInt(r['Number of Trackers']),['k001099','module support plate','support plate','module rail support plate'],'Module Rails / Support','Temporary formula for K001099 / PLUSS00173BZ00: (PV modules − 2) + (2 × Bearing 110) + (6 × Bearing 100), per tracker'],
     ['Module Rail Elevation Plate',r=>2*asInt(r['Bearing 100 / Tracker'])*asInt(r['Number of Trackers']),['k001573','module elevation plate','elevation plate','module rail elevation plate'],'Module Rails / Support','2 × Bearing 100'],
@@ -778,16 +784,16 @@
     ['k001542 - Scada enclosure GW40028',r=>ceilUp(.01*asInt(r['Number of Trackers'])),['k001542','scada','enclosure','gw40028','electrical enclosure'],'Electrical','Round up (0.01 × Tracker)'],
     ['Anemometer for Cold Weather (above 400)',(r,c)=>c.anemometer.key==='cold'?ceilUp((1/48)*asInt(r['Number of Trackers'])):0,['k001536','anemometer','nuovaceva','0103011303'],'Electrical','Elevation ≥ 400 m ASL: round up ((1/48) × Tracker)'],
     ['Anemometer for Normal Weather',(r,c)=>c.anemometer.key==='normal'?ceilUp((1/48)*asInt(r['Number of Trackers'])):0,['k001596','anemometer','nuovaceva','0103010805'],'Electrical','Elevation < 400 m ASL: round up ((1/48) × Tracker)'],
-    ['k001164 - DIN 933 ISO 4017 - M20 × 55',r=>8*asInt(r['Number of Trackers']),['k001164','din 933','iso 4017','m20','55'],'Fasteners / Slew Drive Seat','8 × Main Post'],
-    ['k001010 - DIN 934 ISO 4032 - M20',r=>8*asInt(r['Number of Trackers']),['k001010','din 934','iso 4032','m20'],'Fasteners / Slew Drive Seat','8 × Main Post'],
-    ['k001154 - DIN 125 ISO 7089 - A21 (M20)',r=>16*asInt(r['Number of Trackers']),['k001154','din 125','iso 7089','a21','m20'],'Fasteners / Slew Drive Seat','16 × Main Post'],
-    ['k001163 - DIN 127B - A20',r=>8*asInt(r['Number of Trackers']),['k001163','din 127b','a20'],'Fasteners / Slew Drive Seat','8 × Main Post'],
-    ['k001231 - DIN 933 ISO 4017 - M18 × 80',r=>4*asInt(r['Number of Trackers']),['k001231','din 933','iso 4017','m18','80'],'Fasteners / Slew Drive','4 × Main Post'],
+    ['k001164 - DIN 933 ISO 4017 - M20 × 55',r=>8*asInt(r['Number of Trackers']),['k001164','din 933','iso 4017','m20','55'],'Fasteners / Slew Drive Seat - Main Post','8 × Main Post'],
+    ['k001010 - DIN 934 ISO 4032 - M20',r=>8*asInt(r['Number of Trackers']),['k001010','din 934','iso 4032','m20'],'Fasteners / Slew Drive Seat - Main Post','8 × Main Post'],
+    ['k001154 - DIN 125 ISO 7089 - A21 (M20)',r=>16*asInt(r['Number of Trackers']),['k001154','din 125','iso 7089','a21','m20'],'Fasteners / Slew Drive Seat - Main Post','16 × Main Post'],
+    ['k001163 - DIN 127B - A20',r=>8*asInt(r['Number of Trackers']),['k001163','din 127b','a20'],'Fasteners / Slew Drive Seat - Main Post','8 × Main Post'],
+    ['k001231 - DIN 933 ISO 4017 - M18 × 80',r=>4*asInt(r['Number of Trackers']),['k001231','din 933','iso 4017','m18','80'],'Fasteners / Slew Drive Seat - Slew Drive','4 × Main Post'],
     ['k001228 - DIN 934 ISO 4032 - M18',r=>4*asInt(r['Number of Trackers']),['k001228','din 934','iso 4032','m18'],'Fasteners / Slew Drive','4 × Main Post'],
-    ['k001238 - DIN 7349 ISO 8738 - A19 (M18)',r=>4*asInt(r['Number of Trackers']),['k001238','din 7349','iso 8738','a19','m18'],'Fasteners / Slew Drive','4 × Main Post'],
-    ['k001230 - DIN 127B - A18',r=>4*asInt(r['Number of Trackers']),['k001230','din 127b','a18'],'Fasteners / Slew Drive','4 × Main Post'],
-    ['DIN 7967 - M18',r=>2*asInt(r['Number of Trackers']),['din 7967','m18'],'Fasteners / Slew Drive','2 × Main Post'],
-    ['DIN 936 ISO 4035 - M18',r=>2*asInt(r['Number of Trackers']),['din 936','iso 4035','m18'],'Fasteners / Slew Drive','2 × Main Post'],
+    ['k001238 - DIN 7349 ISO 8738 - A19 (M18)',r=>4*asInt(r['Number of Trackers']),['k001238','din 7349','iso 8738','a19','m18'],'Fasteners / Slew Drive Seat - Slew Drive','4 × Main Post'],
+    ['k001230 - DIN 127B - A18',r=>4*asInt(r['Number of Trackers']),['k001230','din 127b','a18'],'Fasteners / Slew Drive Seat - Slew Drive','4 × Main Post'],
+    ['DIN 7967 - M18',r=>2*asInt(r['Number of Trackers']),['din 7967','m18'],'Fasteners / Slew Drive Seat - Slew Drive','2 × Main Post'],
+    ['DIN 936 ISO 4035 - M18',r=>2*asInt(r['Number of Trackers']),['din 936','iso 4035','m18'],'Fasteners / Slew Drive Seat - Slew Drive','2 × Main Post'],
     ['k001129 - DIN 912 ISO 4762 - M14 × 180 - 40',r=>2*asInt(r['Bearing Posts / Tracker'])*asInt(r['Number of Trackers']),['k001129','din 912','iso 4762','m14','180'],'Fasteners / Bearing Adapter','2 × Bearing Adapter'],
     ['k001125 - DIN 933 ISO 4017 - M14 × 35',r=>4*asInt(r['Bearing Posts / Tracker'])*asInt(r['Number of Trackers']),['k001125','din 933','iso 4017','m14','35'],'Fasteners / Bearing Adapter','4 × Bearing Adapter'],
     ['k001124 - DIN 934 ISO 4032 - M14',r=>4*asInt(r['Bearing Posts / Tracker'])*asInt(r['Number of Trackers']),['k001124','din 934','iso 4032','m14'],'Fasteners / Bearing Adapter','4 × Bearing Adapter'],
@@ -795,12 +801,12 @@
     ['k001130 - DIN 9021 ISO 7093 - 16 (M14)',r=>4*asInt(r['Bearing Posts / Tracker'])*asInt(r['Number of Trackers']),['k001130','din 9021','iso 7093','m14','16'],'Fasteners / Bearing Adapter','4 × Bearing Adapter'],
     ['k001123 - DIN 6796 ISO 10683 - A15 (M14)',r=>4*asInt(r['Bearing Posts / Tracker'])*asInt(r['Number of Trackers']),['k001123','din 6796','iso 10683','a15','m14'],'Fasteners / Bearing Adapter','4 × Bearing Adapter'],
     ['k001137 - Din 982 ISO 7040 - M14',r=>2*asInt(r['Bearing Posts / Tracker'])*asInt(r['Number of Trackers']),['k001137','din 982','iso 7040','m14'],'Fasteners / Bearing Adapter','2 × Bearing Adapter'],
-    ['k001385 - DIN 933 ISO 4017 - M16 × 30',r=>16*asInt(r['Number of Trackers']),['k001385','din 933','iso 4017','m16','30'],'Fasteners / Main Beams','16 × Main Post'],
-    ['k001127 - DIN 125 ISO 7089 - A17 (M16)',r=>22*asInt(r['Number of Trackers']),['k001127','din 125','iso 7089','a17','m16'],'Fasteners / Main Beams','22 × Tracker'],
-    ['k001166 - DIN 127B - A16',r=>16*asInt(r['Number of Trackers']),['k001166','din 127b','a16'],'Fasteners / Main Beams','16 × Main Post'],
-    ['k001388 - DIN 93x Special Thread - M12 × 150 - 46',r=>16*asInt(r['Number of Trackers']),['k001388','din 93x','m12','150'],'Fasteners / Main Beams','8 × Main Beam B'],
-    ['k001157 - DIN 9021 ISO 7093 - 13 (M12)',r=>32*asInt(r['Number of Trackers']),['k001157','din 9021','iso 7093','m12','13'],'Fasteners / Main Beams','16 × Main Beam B'],
-    ['k001013 - DIN 982 ISO 7040 - M12',r=>16*asInt(r['Number of Trackers']),['k001013','din 982','iso 7040','m12'],'Fasteners / Main Beams','= k001388 = 8 × Main Beam B'],
+    ['k001385 - DIN 933 ISO 4017 - M16 × 30',r=>16*asInt(r['Number of Trackers']),['k001385','din 933','iso 4017','m16','30'],'Fasteners / Main Tubes','16 × Main Post'],
+    ['k001127 - DIN 125 ISO 7089 - A17 (M16)',r=>22*asInt(r['Number of Trackers']),['k001127','din 125','iso 7089','a17','m16'],'Fasteners / Main Tubes','22 × Tracker'],
+    ['k001166 - DIN 127B - A16',r=>16*asInt(r['Number of Trackers']),['k001166','din 127b','a16'],'Fasteners / Main Tubes','16 × Main Post'],
+    ['k001388 - DIN 93x Special Thread - M12 × 150 - 46',r=>16*asInt(r['Number of Trackers']),['k001388','din 93x','m12','150'],'Fasteners / Main Tubes','8 × Main Tube B'],
+    ['k001157 - DIN 9021 ISO 7093 - 13 (M12)',r=>32*asInt(r['Number of Trackers']),['k001157','din 9021','iso 7093','m12','13'],'Fasteners / Main Tubes','16 × Main Tube B'],
+    ['k001013 - DIN 982 ISO 7040 - M12',r=>16*asInt(r['Number of Trackers']),['k001013','din 982','iso 7040','m12'],'Fasteners / Main Tubes','= k001388 = 8 × Main Tube B'],
     ['k001151 - DIN 93x Special Thread - M8 × 150 - 50',r=>8*asInt(r['Number of Trackers']),['k001151','din 93x','m8','150'],'Fasteners / Module Rails','2 × Z Rail'],
     ['k001239 - DIN 522 - 19 × 39 × 3 (M18)',r=>4*asInt(r['Number of Trackers']),['k001239','din 522','19','39','m18'],'Fasteners / Slew Drive','4 × Tracker'],
     ['k001576 - Square Washer 38×38×9.5×6 (M8)',r=>2*Math.max(asInt(r['PV Modules per Tracker'])-2,0)*asInt(r['Number of Trackers']),['k001576','square washer','38×38','38x38','hat rail'],'Fasteners / Hat rail','2 × Hat rail'],

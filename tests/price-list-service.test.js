@@ -6,6 +6,7 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
+const CURRENCY_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'currency-data.js'), 'utf8');
 const SERVICE_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'price-list-service.js'), 'utf8');
 const APP_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
 const UI_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'admin-price-lists.js'), 'utf8');
@@ -17,7 +18,9 @@ function loadService({admin = true, client}) {
     LumaAuth: {isAdmin: () => admin},
     LumaSupabase: {getClient: () => client},
   };
-  vm.runInContext(SERVICE_SOURCE, vm.createContext({window, console: {error() {}}}), {filename: 'price-list-service.js'});
+  const context = vm.createContext({window, console: {error() {}}});
+  vm.runInContext(CURRENCY_SOURCE, context, {filename: 'currency-data.js'});
+  vm.runInContext(SERVICE_SOURCE, context, {filename: 'price-list-service.js'});
   return window.LumaPriceListService;
 }
 
@@ -143,9 +146,11 @@ test('migration enforces revision history, exact prices, active uniqueness, audi
 
 test('Part Master integration is exposed as read-only TAG metadata', () => {
   assert.match(APP_SOURCE, /function getPartMasterItems\(\)/);
-  assert.match(APP_SOURCE, /tag,description:String\(record\?\.Description/);
+  assert.match(APP_SOURCE, /tag,part:String\(record\?\.Part/);
+  assert.match(APP_SOURCE, /description:String\(record\?\.Description/);
   assert.match(APP_SOURCE, /unit:String\(record\?\.Unit/);
-  assert.match(APP_SOURCE, /Object\.freeze\(\{tag,description/);
+  assert.match(APP_SOURCE, /category:String\(record\?\.Category/);
+  assert.match(APP_SOURCE, /Object\.freeze\(\{tag,part/);
 });
 
 test('Administration exposes active Price Lists navigation and focused revision controls', () => {
@@ -153,5 +158,8 @@ test('Administration exposes active Price Lists navigation and focused revision 
   assert.match(UI_SOURCE, /Duplicate Price List/);
   assert.match(UI_SOURCE, /Archive Price List/);
   assert.match(UI_SOURCE, /Select TAG from Part Master/);
+  assert.match(UI_SOURCE, /LumaCommercialCategories\.partMatchesCategory/);
+  assert.match(UI_SOURCE, /Changing Category to/);
+  assert.match(UI_SOURCE, /incompatible item\(s\) removed/);
   assert.match(UI_SOURCE, /Blank Unit Price means missing; zero is preserved as zero/);
 });

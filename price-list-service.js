@@ -1,7 +1,7 @@
 'use strict';
 
 (function initializePriceListService(global) {
-  const CURRENCIES = Object.freeze(['EUR', 'USD', 'GBP', 'CNY']);
+  const CURRENCIES = global.LumaCurrencyData.CODES;
 
   class PriceListServiceError extends Error {
     constructor(code, message) {
@@ -86,7 +86,7 @@
         client
           .from('suppliers')
           .select(`
-            id, supplier_code, supplier_name, active,
+            id, supplier_code, supplier_name, country, active,
             supplier_categories (category, active)
           `)
           .order('supplier_code', {ascending: true}),
@@ -96,7 +96,7 @@
             id, supplier_id, category, revision, currency,
             valid_from, valid_until, active, notes,
             created_at, created_by, updated_at, updated_by,
-            supplier:suppliers (id, supplier_code, supplier_name, active),
+            supplier:suppliers (id, supplier_code, supplier_name, country, active),
             price_list_items (
               id, price_list_id, tag, description, unit, unit_price,
               created_at, created_by, updated_at, updated_by
@@ -122,7 +122,7 @@
         client
           .from('suppliers')
           .select(`
-            id, supplier_code, supplier_name, active,
+            id, supplier_code, supplier_name, country, active,
             supplier_categories (category, delivery_time_days, active)
           `)
           .eq('active', true)

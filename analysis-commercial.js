@@ -1,17 +1,7 @@
 'use strict';
 
 (function initializeCommercialAnalysis(global) {
-  const SECTION_CATEGORIES = Object.freeze({
-    posts: 'Posts',
-    substructure: 'Substructure',
-    bearing: 'Bearing',
-    slew_drive: 'Slew Drive',
-    pv_module: 'PV Module',
-    limit_switch: 'Limit Switch',
-    soltrk: 'SOLTRK',
-    junction_box: 'Junction Box',
-    fasteners: 'Fasteners',
-  });
+  const SECTION_CATEGORIES = global.LumaCommercialCategories.SECTION_CATEGORIES;
 
   let state = {
     status: 'idle',

@@ -52,6 +52,7 @@
       else normalized[field] = String(details?.[field] || '').trim();
     }
     normalized.supplier_code = normalized.supplier_code.toUpperCase();
+    normalized.country = global.LumaCountryData?.canonicalCountry?.(normalized.country) || normalized.country;
     return normalized;
   }
 

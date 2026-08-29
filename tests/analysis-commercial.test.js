@@ -7,6 +7,7 @@ const test = require('node:test');
 const vm = require('node:vm');
 
 const SOURCE = fs.readFileSync(path.join(__dirname, '..', 'analysis-commercial.js'), 'utf8');
+const CATEGORY_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'commercial-categories.js'), 'utf8');
 const APP_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
 
 function fixture() {
@@ -32,7 +33,9 @@ function fixture() {
 function loadModule(data = fixture()) {
   let loads = 0;
   const window = {LumaPriceListService: {async loadActiveAnalysisData() { loads += 1; return data; }}};
-  vm.runInContext(SOURCE, vm.createContext({window, Date, Map, Set}), {filename: 'analysis-commercial.js'});
+  const context = vm.createContext({window, Date, Map, Set});
+  vm.runInContext(CATEGORY_SOURCE, context, {filename: 'commercial-categories.js'});
+  vm.runInContext(SOURCE, context, {filename: 'analysis-commercial.js'});
   return {commercial: window.LumaCommercialAnalysis, loads: () => loads};
 }
 
@@ -112,4 +115,22 @@ test('workspace project payload persists stable supplier IDs for each mapped sec
   assert.match(APP_SOURCE, /analysis_supplier_selections:normalizeAnalysisSupplierSelections\(p\.analysis_supplier_selections\)/);
   assert.match(APP_SOURCE, /p\.analysis_supplier_selections=normalizeAnalysisSupplierSelections\(raw\?\.analysis_supplier_selections\)/);
   assert.match(APP_SOURCE, /p\.analysis_supplier_selections\[page\]=event\.target\.value/);
+});
+
+test('every Analysis table uses the shared numbered sortable and filterable table', () => {
+  assert.match(APP_SOURCE, /function makeAnalysisTable\(columns,rows\)/);
+  assert.match(APP_SOURCE, /return \['No\.',\.\.\.\(columns\|\|\[\]\)\.filter/);
+  assert.match(APP_SOURCE, /data-analysis-sort-index/);
+  assert.match(APP_SOURCE, /data-analysis-filter-index/);
+  assert.match(APP_SOURCE, /function wireAnalysisTables\(root\)/);
+  const analysisSource = APP_SOURCE.slice(APP_SOURCE.indexOf('function formatAnalysisNumber'), APP_SOURCE.indexOf('function projectSummaryRows'));
+  assert.doesNotMatch(analysisSource, /makeArrayTable\(/);
+});
+
+test('BOM detail Analysis tables inherit all active Project BOM columns', () => {
+  assert.match(APP_SOURCE, /function analysisProjectBomColumns\(extraColumns=\[\]\)/);
+  assert.match(APP_SOURCE, /current\?\.bom\?\.columns\|\|\[\]/);
+  assert.match(APP_SOURCE, /analysisProjectBomColumns\(\['Supplier Unit Price','Price Currency','Calculated Total'\]\)/);
+  assert.match(APP_SOURCE, /analysisProjectBomColumns\(\['Qty \/ Package','Packages','Required Qty'\]\)/);
+  assert.match(APP_SOURCE, /analysisProjectBomRow\(item\.source/);
 });

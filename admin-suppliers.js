@@ -34,6 +34,7 @@
     state.notice = null;
     global.LumaAdminPriceLists?.reset?.();
     global.LumaAdminPartMaster?.reset?.();
+    global.LumaAdminLogistics?.reset?.();
   }
 
   function backButton(label) {
@@ -47,32 +48,42 @@
     state.root.innerHTML = `
       <div class="administration-home-header">
         <h2 class="table-title">Administration</h2>
-        <p class="table-subtitle">Administrator Controls</p>
-        <p>Manage administrator-controlled commercial configuration. Normal application pages will consume this information as read-only data.</p>
+        <p class="table-subtitle">Manage administrator-controlled commercial and engineering configuration.</p>
       </div>
       <div class="administration-card-grid">
         <button class="administration-card" type="button" data-admin-page="suppliers">
           <span class="administration-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 20V8l8-4 8 4v12M8 20v-5h8v5M8 10h.01M12 10h.01M16 10h.01"/></svg></span>
-          <span><strong>Suppliers</strong><small>Supplier identity, capabilities, and delivery times</small></span>
+          <span><strong>Suppliers</strong><small>Manage supplier master data and supported categories.</small></span>
           <em aria-hidden="true">&rsaquo;</em>
         </button>
         <button class="administration-card" type="button" data-admin-page="price-lists">
           <span class="administration-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 9h8M8 13h5M16 16h.01"/></svg></span>
-          <span><strong>Price Lists</strong><small>Supplier revisions, item prices, validity, and currency</small></span>
+          <span><strong>Supplier Price Lists</strong><small>Manage supplier/category price-list revisions.</small></span>
           <em aria-hidden="true">&rsaquo;</em>
         </button>
         <button class="administration-card" type="button" data-admin-page="part-master">
-          <span><strong>Part Master</strong><small>Engineering part identities and post configuration attributes</small></span>
+          <span class="administration-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 4h14v16H5zM8 8h8M8 12h8M8 16h5"/></svg></span>
+          <span><strong>Part Master</strong><small>Manage engineering Part Master records.</small></span>
           <em aria-hidden="true">&rsaquo;</em>
         </button>
         <button class="administration-card" type="button" data-admin-page="quotation-settings">
-          <span><strong>Quotation Settings</strong><small>Company, commercial, and document defaults</small></span>
+          <span class="administration-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 3h9l3 3v15H6zM14 3v4h4M9 11h6M9 15h6"/></svg></span>
+          <span><strong>Quotation Settings</strong><small>Manage quotation defaults and company details.</small></span>
           <em aria-hidden="true">&rsaquo;</em>
         </button>
-        ${['Shipment', 'CAT', 'Custom Costs'].map(label => `
-          <button class="administration-card coming-later" type="button" disabled>
-            <span><strong>${escapeHtml(label)}</strong><small>Coming later</small></span>
-          </button>`).join('')}
+        <button class="administration-card" type="button" data-admin-page="logistics">
+          <span class="administration-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7h11v10H3zM14 10h4l3 3v4h-7M7 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm10 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/></svg></span>
+          <span><strong>Logistics</strong><small>Manage container capacities and logistics rates.</small></span>
+          <em aria-hidden="true">&rsaquo;</em>
+        </button>
+        <button class="administration-card coming-later" type="button" disabled>
+          <span class="administration-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19h16M7 16V8m5 8V5m5 11v-6"/></svg></span>
+          <span><strong>CAT</strong><small>Coming later</small></span>
+        </button>
+        <button class="administration-card coming-later" type="button" disabled>
+          <span class="administration-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M14.5 9.5c-.6-.6-1.4-.9-2.5-.9-1.4 0-2.5.7-2.5 1.7 0 2.7 5 1.3 5 4 0 1-1.1 1.7-2.5 1.7-1.1 0-2-.3-2.7-1M12 6.5v11"/></svg></span>
+          <span><strong>Custom Costs</strong><small>Coming later</small></span>
+        </button>
       </div>
       <dl class="administration-access">
         <div><dt>Access</dt><dd>Administrator only</dd></div>
@@ -83,6 +94,7 @@
     state.root.querySelector('[data-admin-page="price-lists"]').addEventListener('click', () => global.LumaAdminPriceLists.open(state.root, renderHome));
     state.root.querySelector('[data-admin-page="part-master"]').addEventListener('click', () => global.LumaAdminPartMaster.open(state.root, renderHome));
     state.root.querySelector('[data-admin-page="quotation-settings"]').addEventListener('click', () => global.LumaQuotation?.openSettings?.(state.root, renderHome));
+    state.root.querySelector('[data-admin-page="logistics"]').addEventListener('click', () => global.LumaAdminLogistics.open(state.root, renderHome));
   }
 
   function renderSupplierLoading(message = 'Loading suppliers...') {
@@ -194,7 +206,7 @@
     state.root.innerHTML = `
       <div class="admin-subpage-nav">${backButton('Back to Administration')}</div>
       <div class="supplier-page-header">
-        <div><h2 class="table-title">Suppliers</h2><p class="table-subtitle">Supplier identity, capabilities, and category delivery times.</p></div>
+        <div><h2 class="table-title">Suppliers</h2><p class="table-subtitle">Manage supplier master data and supported categories.</p></div>
         <button class="export" type="button" data-supplier-add>Add Supplier</button>
       </div>
       ${state.notice ? `<p class="supplier-notice ${escapeHtml(state.notice.kind)}" role="status">${escapeHtml(state.notice.message)}</p>` : ''}
@@ -227,6 +239,11 @@
   function supplierInput(label, name, value = '', options = '') {
     return `<label class="supplier-form-field"><span>${escapeHtml(label)}</span><input name="${escapeHtml(name)}" value="${escapeHtml(value)}" ${options}></label>`;
   }
+  function supplierCountrySelect(value = '') {
+    const canonical = global.LumaCountryData.canonicalCountry(value), current = canonical || String(value || '').trim();
+    const values = [...global.LumaCountryData.SUPPLIER_COUNTRIES];if(current&&!values.includes(current))values.unshift(current);
+    return `<label class="supplier-form-field"><span>Country</span><select name="country"><option value="">Select Country</option>${values.map(country=>`<option value="${escapeHtml(country)}" ${country===current?'selected':''}>${escapeHtml(country)}</option>`).join('')}</select></label>`;
+  }
 
   function categoryRowsHtml(supplier) {
     const assignments = new Map((supplier?.supplier_categories || []).filter(item => item.active !== false).map(item => [item.category, item]));
@@ -252,7 +269,7 @@
         <div class="supplier-form-grid">
           ${supplierInput('Supplier Code', 'supplier_code', supplier?.supplier_code, 'required autocomplete="off"')}
           ${supplierInput('Supplier Name', 'supplier_name', supplier?.supplier_name, 'required autocomplete="organization"')}
-          ${supplierInput('Country', 'country', supplier?.country, 'autocomplete="country-name"')}
+          ${supplierCountrySelect(supplier?.country)}
           ${supplierInput('City', 'city', supplier?.city, 'autocomplete="address-level2"')}
           ${supplierInput('Contact Name', 'contact_name', supplier?.contact_name, 'autocomplete="name"')}
           ${supplierInput('Contact Email', 'contact_email', supplier?.contact_email, 'type="email" autocomplete="email"')}

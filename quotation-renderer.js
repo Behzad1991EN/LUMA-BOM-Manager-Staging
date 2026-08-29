@@ -54,8 +54,10 @@
   }
 
   function formHtml(quotation) {
-    return global.LumaQuotationFields.primaryControls().map(({label, key, inputType = 'text'}) => {
+    const controls=[...global.LumaQuotationFields.primaryControls(),{label:'Currency',key:'currency',inputType:'currency'}];
+    return controls.map(({label, key, inputType = 'text'}) => {
       if (inputType === 'title') return `<label class="quotation-field"><span>${escapeHtml(label)}</span><select data-quotation-field="${key}">${['Mr','Mrs','Ms','Dr','MR/MRs'].map(value => `<option value="${value}" ${quotation[key] === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label>`;
+      if (inputType === 'currency') return `<label class="quotation-field"><span>${escapeHtml(label)}</span><select data-quotation-field="${key}">${global.LumaCurrencyData.OPTIONS.map(currency => `<option value="${currency.code}" ${quotation[key] === currency.code ? 'selected' : ''}>${escapeHtml(global.LumaCurrencyData.optionLabel(currency.code))}</option>`).join('')}</select></label>`;
       return `<label class="quotation-field"><span>${escapeHtml(label)}</span><input data-quotation-field="${key}" type="${inputType}" value="${escapeHtml(quotation[key])}"></label>`;
     }).join('');
   }
@@ -339,8 +341,8 @@
   async function openSettings(root, back) {
     if (!global.LumaAuth?.isAdmin?.()) return;
     const settings = await global.LumaQuotationModel.loadSettings();
-    const fields = [['Currency','currency','text'],['Default Revision','revision','text'],['Offer Validity (days)','validity_days','number'],['Delivery Time (weeks)','delivery_time_weeks','number'],['Safeguard Price','safeguard_price','number'],['Monitoring System Price','monitoring_price','number'],['Engineering Services Price','engineering_services_price','number'],['Commissioning and Testing Price','commissioning_price','number'],['Technician Working Days','technician_days','number'],['Pile Supplement / MWp','pile_supplement_per_mwp','number'],['Manworks Installation / day','manworks_installation_per_day','number'],['Extended KSI Staff / day','manworks_extended_per_day','number']];
-    root.innerHTML = `<div class="admin-subpage-nav"><button class="admin-back-button" data-quotation-settings-back aria-label="Back">←</button></div><h2 class="table-title">Quotation Settings</h2><p class="table-subtitle">Administrator-controlled commercial values used by the centralized quotation model.</p><div class="supplier-form-grid">${fields.map(([label,key,type]) => `<label>${escapeHtml(label)}<input data-quotation-setting="${key}" type="${type}" value="${escapeHtml(settings[key] ?? '')}"></label>`).join('')}</div><button data-quotation-settings-save>Save Settings</button>`;
+    const fields = [['Currency','currency','currency'],['Default Revision','revision','text'],['Offer Validity (days)','validity_days','number'],['Delivery Time (weeks)','delivery_time_weeks','number'],['Safeguard Price','safeguard_price','number'],['Monitoring System Price','monitoring_price','number'],['Engineering Services Price','engineering_services_price','number'],['Commissioning and Testing Price','commissioning_price','number'],['Technician Working Days','technician_days','number'],['Pile Supplement / MWp','pile_supplement_per_mwp','number'],['Manworks Installation / day','manworks_installation_per_day','number'],['Extended KSI Staff / day','manworks_extended_per_day','number']];
+    root.innerHTML = `<div class="admin-subpage-nav"><button class="admin-back-button" data-quotation-settings-back aria-label="Back">←</button></div><h2 class="table-title">Quotation Settings</h2><p class="table-subtitle">Manage company, commercial, and document defaults.</p><div class="supplier-form-grid">${fields.map(([label,key,type]) => type==='currency'?`<label>${escapeHtml(label)}<select data-quotation-setting="${key}">${global.LumaCurrencyData.OPTIONS.map(currency=>`<option value="${currency.code}" ${currency.code===(settings[key]||'EUR')?'selected':''}>${escapeHtml(global.LumaCurrencyData.optionLabel(currency.code))}</option>`).join('')}</select></label>`:`<label>${escapeHtml(label)}<input data-quotation-setting="${key}" type="${type}" value="${escapeHtml(settings[key] ?? '')}"></label>`).join('')}</div><button data-quotation-settings-save>Save Settings</button>`;
     root.querySelector('[data-quotation-settings-back]').addEventListener('click', back);
     root.querySelector('[data-quotation-settings-save]').addEventListener('click', async () => {
       const next = {...settings};

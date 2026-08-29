@@ -10,6 +10,7 @@ const AUTH_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'auth.js'), 'utf8
 
 function createElement() {
   const listeners = new Map();
+  const attributes = new Map();
   return {
     hidden: false,
     disabled: false,
@@ -18,22 +19,41 @@ function createElement() {
     value: '',
     className: '',
     addEventListener(type, listener) { listeners.set(type, listener); },
-    async dispatch(type) { return listeners.get(type)?.({preventDefault() {}}); },
+    async dispatch(type, event = {}) { return listeners.get(type)?.({preventDefault() {}, target: this, ...event}); },
+    setAttribute(name, value) { attributes.set(name, String(value)); },
+    getAttribute(name) { return attributes.get(name); },
+    contains(target) { return target === this; },
     focus() {},
   };
 }
 
-async function startAuth({session = null, role = 'user', roleError = null} = {}) {
+async function startAuth({session = null, role = 'user', roleError = null, linkType = ''} = {}) {
   const ids = [
     'authRoot', 'authLoading', 'authLoginHeading', 'loginForm', 'loginEmail',
-    'loginPassword', 'loginSubmitBtn', 'loginStatus', 'accountSetupForm',
-    'accountSetupEmail', 'newPassword', 'confirmPassword', 'setPasswordBtn',
-    'accountSetupStatus', 'appShell', 'authenticatedUserEmail', 'logoutBtn',
+    'loginPassword', 'loginTurnstile', 'loginSubmitBtn', 'forgotPasswordBtn', 'loginStatus',
+    'accountSetupForm', 'accountSetupEmail', 'newPassword', 'confirmPassword', 'setPasswordBtn',
+    'accountSetupStatus', 'forgotPasswordForm', 'forgotPasswordEmail', 'forgotTurnstile',
+    'forgotPasswordSubmitBtn', 'forgotPasswordBackBtn', 'forgotPasswordStatus',
+    'recoveryPasswordForm', 'recoveryPasswordEmail', 'recoveryNewPassword',
+    'recoveryConfirmPassword', 'recoveryPasswordSubmitBtn', 'recoveryPasswordStatus',
+    'invalidRecoveryPanel', 'invalidRecoveryMessage', 'invalidRecoveryRequestBtn',
+    'invalidRecoveryBackBtn', 'appShell', 'authenticatedUserName', 'authenticatedUserEmail',
+    'accountMenuBtn', 'accountMenu', 'myProfileBtn', 'changePasswordBtn', 'logoutBtn',
+    'accountModalBackdrop', 'accountModalTitle', 'accountModalCloseBtn', 'profileForm',
+    'profileFullName', 'profileJobTitle', 'profileCompany', 'profilePhone', 'profileEmail',
+    'profileRole', 'profileStatus', 'profileSaveBtn', 'profileChangePasswordBtn',
+    'changePasswordForm', 'currentPassword', 'changeNewPassword', 'changeConfirmPassword',
+    'changePasswordStatus', 'changePasswordCancelBtn', 'changePasswordSubmitBtn',
   ];
   const elements = Object.fromEntries(ids.map(id => [id, createElement()]));
   elements.loginForm.hidden = true;
   elements.accountSetupForm.hidden = true;
+  elements.forgotPasswordForm.hidden = true;
+  elements.recoveryPasswordForm.hidden = true;
+  elements.invalidRecoveryPanel.hidden = true;
   elements.appShell.hidden = true;
+  elements.accountMenu.hidden = true;
+  elements.accountModalBackdrop.hidden = true;
 
   let onAuthStateChange = null;
   let roleReads = 0;
@@ -71,9 +91,11 @@ async function startAuth({session = null, role = 'user', roleError = null} = {})
   const window = {
     document,
     location: {
-      search: '',
+      search: linkType ? `?type=${linkType}` : '',
       hash: '',
       href: 'http://127.0.0.1:5500/',
+      origin: 'http://127.0.0.1:5500',
+      pathname: '/',
     },
     history: {replaceState() {}},
     localStorage: {
@@ -89,6 +111,7 @@ async function startAuth({session = null, role = 'user', roleError = null} = {})
       init() { appCalls.init += 1; },
       refreshAuthorization() { appCalls.refreshAuthorization += 1; },
     },
+    setTimeout,
   };
   const context = vm.createContext({
     window,
@@ -167,4 +190,21 @@ test('token refresh for the current user does not hide or reauthorize the applic
   assert.equal(result.appCalls.refreshAuthorization, 0);
   assert.equal(result.getRoleReads(), 1);
   assert.equal(result.window.LumaAuth.getSession().access_token, 'refreshed-token');
+});
+
+test('a valid recovery session shows only the set-new-password screen', async () => {
+  const result = await startAuth({session: authenticatedSession(), linkType: 'recovery'});
+  assert.equal(result.elements.recoveryPasswordForm.hidden, false);
+  assert.equal(result.elements.appShell.hidden, true);
+  assert.equal(result.window.LumaAuth.getRole(), null);
+  assert.equal(result.appCalls.init, 0);
+});
+
+test('forgot password is separate from the normal login screen', async () => {
+  const result = await startAuth();
+  await result.elements.forgotPasswordBtn.dispatch('click');
+  assert.equal(result.elements.forgotPasswordForm.hidden, false);
+  assert.equal(result.elements.loginForm.hidden, true);
+  assert.equal(result.elements.forgotPasswordSubmitBtn.disabled, true);
+  assert.match(result.elements.forgotPasswordStatus.textContent, /not configured/i);
 });

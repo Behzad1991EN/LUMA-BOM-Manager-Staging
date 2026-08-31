@@ -32,10 +32,6 @@
           <h2 id="accountSetupTitle">Complete Your Account</h2>
           <p>Create a password for <strong id="accountSetupEmail"></strong>.</p>
         </div>
-        <aside class="password-security-notice" aria-label="Password security notice">
-          <strong>Security notice</strong>
-          <span>Do NOT use your KSI Email Password here. Create a different password.</span>
-        </aside>
         <label for="newPassword">New Password</label>
         <input id="newPassword" name="new-password" type="password" autocomplete="new-password" minlength="8" required />
         <div class="password-requirements" data-password-requirements="newPassword" aria-live="polite">
@@ -49,6 +45,11 @@
         </div>
         <label for="confirmPassword">Confirm Password</label>
         <input id="confirmPassword" name="confirm-password" type="password" autocomplete="new-password" minlength="8" required />
+        <aside class="password-security-notice" aria-label="Password security notice">
+          <strong>Do Not Use KSI account password</strong>
+          <span>Use at least 8 characters</span>
+          <span>Use numbers + upper and Lower case letters</span>
+        </aside>
         <button id="setPasswordBtn" type="submit">Set Password</button>
         <p id="accountSetupStatus" class="login-status" role="alert" aria-live="polite" hidden></p>
       </form>
@@ -76,10 +77,6 @@
           <h2 id="recoveryPasswordTitle">Set New Password</h2>
           <p>Choose a new password for <strong id="recoveryPasswordEmail"></strong>.</p>
         </div>
-        <aside class="password-security-notice" aria-label="Password security notice">
-          <strong>Security notice</strong>
-          <span>Do NOT use your KSI Email Password here. Create a different password.</span>
-        </aside>
         <label for="recoveryNewPassword">New Password</label>
         <input id="recoveryNewPassword" name="recovery-new-password" type="password" autocomplete="new-password" minlength="8" required />
         <div class="password-requirements" data-password-requirements="recoveryNewPassword" aria-live="polite">
@@ -93,6 +90,11 @@
         </div>
         <label for="recoveryConfirmPassword">Confirm New Password</label>
         <input id="recoveryConfirmPassword" name="recovery-confirm-password" type="password" autocomplete="new-password" minlength="8" required />
+        <aside class="password-security-notice" aria-label="Password security notice">
+          <strong>Do Not Use KSI account password</strong>
+          <span>Use at least 8 characters</span>
+          <span>Use numbers + upper and Lower case letters</span>
+        </aside>
         <button id="recoveryPasswordSubmitBtn" type="submit">Set New Password</button>
         <p id="recoveryPasswordStatus" class="login-status" role="alert" aria-live="polite" hidden></p>
       </form>
@@ -238,11 +240,12 @@
         <p class="account-form-help">A confirmation link will be sent to:</p>
         <label>Account Email<input id="changePasswordEmail" type="email" readonly /></label>
         <p class="account-form-help">To protect your account, you must open the link in your email before choosing a new password.</p>
-        <aside class="password-security-notice" aria-label="Password security notice">
-          <strong>Security notice</strong>
-          <span>Do NOT use your KSI Email Password here. Create a different password.</span>
-        </aside>
         <div id="changePasswordCaptcha" class="captcha-container" aria-label="hCaptcha security verification"></div>
+        <aside class="password-security-notice" aria-label="Password security notice">
+          <strong>Do Not Use KSI account password</strong>
+          <span>Use at least 8 characters</span>
+          <span>Use numbers + upper and Lower case letters</span>
+        </aside>
         <p id="changePasswordStatus" class="login-status" role="alert" aria-live="polite" hidden></p>
         <div class="modal-actions account-form-actions">
           <button id="changePasswordCancelBtn" type="button">Back to Profile</button>

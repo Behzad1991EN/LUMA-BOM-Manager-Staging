@@ -70,10 +70,28 @@ test('password changes use CAPTCHA-protected recovery links and no direct signed
   assert.doesNotMatch(source, /console\.error\([^\n]*password/i);
 });
 
-test('invitation, recovery, and signed-in change flows show the password warning', () => {
+test('invitation, recovery, and signed-in change flows show the requested warning below their fields', () => {
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-  const warning = 'Do NOT use your KSI Email Password here. Create a different password.';
-  assert.equal(html.split(warning).length - 1, 3);
+  const warningLines = [
+    'Do Not Use KSI account password',
+    'Use at least 8 characters',
+    'Use numbers + upper and Lower case letters',
+  ];
+  for (const line of warningLines) assert.equal(html.split(line).length - 1, 3);
+  for (const [formId, finalFieldId, submitId] of [
+    ['accountSetupForm', 'confirmPassword', 'setPasswordBtn'],
+    ['recoveryPasswordForm', 'recoveryConfirmPassword', 'recoveryPasswordSubmitBtn'],
+    ['changePasswordForm', 'changePasswordCaptcha', 'changePasswordSubmitBtn'],
+  ]) {
+    const formStart = html.indexOf(`id="${formId}"`);
+    const formEnd = html.indexOf('</form>', formStart);
+    const form = html.slice(formStart, formEnd);
+    const fieldPosition = form.indexOf(`id="${finalFieldId}"`);
+    const warningPosition = form.indexOf('class="password-security-notice"');
+    const submitPosition = form.indexOf(`id="${submitId}"`);
+    assert.ok(fieldPosition > -1 && fieldPosition < warningPosition);
+    assert.ok(warningPosition < submitPosition);
+  }
   assert.equal((html.match(/data-password-rule="length"/g) || []).length, 2);
   assert.equal((html.match(/data-password-rule="uppercase"/g) || []).length, 2);
   assert.equal((html.match(/data-password-rule="lowercase"/g) || []).length, 2);

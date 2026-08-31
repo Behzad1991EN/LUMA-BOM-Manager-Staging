@@ -54,34 +54,72 @@ test('profile migration combines own-row RLS, column grants, and immutable secur
   assert.doesNotMatch(sql, /grant update \([^)]*role/i);
 });
 
-test('auth flow uses recovery events, CAPTCHA tokens, and native current-password verification', () => {
+test('password changes use CAPTCHA-protected recovery links and no direct signed-in password update', () => {
   const source = fs.readFileSync(path.join(ROOT, 'auth.js'), 'utf8');
   assert.match(source, /event === 'PASSWORD_RECOVERY'/);
+  assert.match(source, /auth\.verifyOtp\(\{token_hash: tokenHash, type: 'recovery'\}\)/);
   assert.match(source, /resetPasswordForEmail\([^]*captchaToken:/);
-  assert.match(source, /current_password:\s*elements\.currentPassword\.value/);
+  assert.match(source, /const credentials = \{email:[^\n]*options: \{captchaToken: captchaToken\}\}/);
+  assert.match(source, /signInWithPassword\(credentials\)/);
+  assert.equal((source.match(/resetPasswordForEmail\(/g) || []).length, 2);
+  assert.match(source, /auth\.getUser\(\)/);
+  assert.match(source, /auth\.signOut\(\{scope: 'global'\}\)/);
+  assert.doesNotMatch(source, /current_password|currentPassword|changeNewPassword|changeConfirmPassword/);
+  assert.equal((source.match(/auth\.updateUser\(\{password:/g) || []).length, 2);
   assert.match(source, /GENERIC_RESET_CONFIRMATION/);
   assert.doesNotMatch(source, /console\.error\([^\n]*password/i);
 });
 
-test('browser auth configuration contains no privileged Supabase or Turnstile secret', () => {
+test('invitation, recovery, and signed-in change flows show the password warning', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const warning = 'Do NOT use your KSI Email Password here. Create a different password.';
+  assert.equal(html.split(warning).length - 1, 3);
+  assert.equal((html.match(/data-password-rule="length"/g) || []).length, 2);
+  assert.equal((html.match(/data-password-rule="uppercase"/g) || []).length, 2);
+  assert.equal((html.match(/data-password-rule="lowercase"/g) || []).length, 2);
+  assert.equal((html.match(/data-password-rule="digit"/g) || []).length, 2);
+  assert.doesNotMatch(html, /id="currentPassword"/);
+});
+
+test('browser auth configuration contains the public hCaptcha site key and no privileged secret', () => {
   const config = fs.readFileSync(path.join(ROOT, 'auth-config.js'), 'utf8');
   const client = fs.readFileSync(path.join(ROOT, 'supabase-client.js'), 'utf8');
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   assert.doesNotMatch(config, /service_role|database password/i);
+  assert.doesNotMatch(config, /HCAPTCHA_SECRET\s*=/i);
   assert.doesNotMatch(client, /service_role|secret key|database password/i);
+  assert.match(config, /HCAPTCHA_SITE_KEY\s*=\s*'a4c844ec-e33e-4268-bedc-5934b7be9360'/);
+  assert.equal((html.match(/https:\/\/js\.hcaptcha\.com\/1\/api\.js/g) || []).length, 1);
+  assert.match(html, /captcha-service\.js/);
+  assert.doesNotMatch(html, /turnstile|challenges\.cloudflare/i);
   assert.match(client, /sb_publishable_/);
 });
 
 test('password-reset redirects follow the current static deployment origin and path', () => {
   const source = fs.readFileSync(path.join(ROOT, 'auth-config.js'), 'utf8');
-  for (const location of [
-    {origin: 'http://127.0.0.1:5500', pathname: '/'},
-    {origin: 'https://example.github.io', pathname: '/LUMA-BOM-Manager-Staging/'},
-    {origin: 'https://example.github.io', pathname: '/LUMA-BOM-Manager/'},
+  for (const [location, expected] of [
+    [{origin: 'http://localhost:5500', pathname: '/'}, 'http://localhost:5500/'],
+    [{origin: 'http://127.0.0.1:5500', pathname: '/'}, 'http://127.0.0.1:5500/'],
+    [{origin: 'https://behzad1991en.github.io', pathname: '/LUMA-BOM-Manager-Staging/'}, 'https://behzad1991en.github.io/LUMA-BOM-Manager-Staging/'],
+    [{origin: 'https://behzad1991en.github.io', pathname: '/LUMA-BOM-Manager/'}, 'https://behzad1991en.github.io/LUMA-BOM-Manager/'],
   ]) {
     const window = {location};
     vm.runInContext(source, vm.createContext({window}), {filename: 'auth-config.js'});
-    assert.equal(window.LumaAuthConfig.getPasswordResetRedirectUrl(), `${location.origin}${location.pathname}`);
+    assert.equal(window.LumaAuthConfig.getPasswordResetRedirectUrl(), expected);
   }
+});
+
+test('local Supabase auth config mirrors the password policy, resend limit, redirects, and scanner-safe templates', () => {
+  const config = fs.readFileSync(path.join(ROOT, 'supabase', 'config.toml'), 'utf8');
+  const recoveryTemplate = fs.readFileSync(path.join(ROOT, 'supabase', 'templates', 'recovery.html'), 'utf8');
+  assert.match(config, /minimum_password_length\s*=\s*8/);
+  assert.match(config, /password_requirements\s*=\s*"lower_upper_letters_digits"/);
+  assert.match(config, /max_frequency\s*=\s*"60s"/);
+  assert.match(config, /LUMA-BOM-Manager-Staging\//);
+  assert.match(config, /auth\.email\.notification\.password_changed/);
+  assert.match(recoveryTemplate, /recovery_action=confirm/);
+  assert.match(recoveryTemplate, /token_hash=\{\{ \.TokenHash \}\}/);
+  assert.doesNotMatch(recoveryTemplate, /\.ConfirmationURL/);
 });
 
 test('signed-in profile menu is at the top of the left column without a Sidebar title', () => {

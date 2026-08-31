@@ -5,14 +5,15 @@
   const VALID_ROLES = new Set(Object.values(USER_ROLES));
   const config = global.LumaAuthConfig || Object.freeze({
     PASSWORD_MIN_LENGTH: 8,
-    TURNSTILE_SITE_KEY: '',
+    HCAPTCHA_SITE_KEY: '',
     isCaptchaConfigured: () => false,
     getPasswordResetRedirectUrl: () => `${global.location.origin}${global.location.pathname}`,
   });
   const MIN_PASSWORD_LENGTH = config.PASSWORD_MIN_LENGTH || 8;
   const ACCOUNT_SETUP_STORAGE_KEY = 'luma_auth_account_setup_user_id';
   const RECOVERY_STORAGE_KEY = 'luma_auth_password_recovery_user_id';
-  const GENERIC_RESET_CONFIRMATION = 'If an eligible account exists for that email, password-reset instructions have been sent.';
+  const EMAIL_REQUEST_COOLDOWN_MS = 60 * 1000;
+  const GENERIC_RESET_CONFIRMATION = 'If an account exists for this email, a password reset link has been sent.';
   const state = {
     session: null,
     role: null,
@@ -20,23 +21,30 @@
     appInitialized: false,
     invitationLinkDetected: false,
     recoveryLinkDetected: false,
+    invitationVerifiedUserId: '',
+    recoveryVerifiedUserId: '',
+    recoveryConfirmationTokenHash: '',
+    recoveryVerificationPending: false,
+    invalidRecoveryConfirmation: false,
+    pendingSignOutMessage: '',
     authorizationRequestId: 0,
     authorizingUserId: null,
     loginBusy: false,
     forgotBusy: false,
-    captcha: {
-      login: {widgetId: null, token: '', renderAttempts: 0},
-      forgot: {widgetId: null, token: '', renderAttempts: 0},
-    },
+    changeBusy: false,
+    forgotCooldownUntil: 0,
+    changeCooldownUntil: 0,
   };
 
   function getElements() {
     const ids = [
       'authRoot', 'authLoading', 'authLoginHeading', 'loginForm', 'loginEmail', 'loginPassword',
-      'loginTurnstile', 'loginSubmitBtn', 'forgotPasswordBtn', 'loginStatus', 'accountSetupForm',
+      'loginCaptcha', 'loginSubmitBtn', 'forgotPasswordBtn', 'loginStatus', 'accountSetupForm',
       'accountSetupEmail', 'newPassword', 'confirmPassword', 'setPasswordBtn', 'accountSetupStatus',
-      'forgotPasswordForm', 'forgotPasswordEmail', 'forgotTurnstile', 'forgotPasswordSubmitBtn',
-      'forgotPasswordBackBtn', 'forgotPasswordStatus', 'recoveryPasswordForm', 'recoveryPasswordEmail',
+      'forgotPasswordForm', 'forgotPasswordEmail', 'forgotCaptcha', 'forgotPasswordSubmitBtn',
+      'forgotPasswordBackBtn', 'forgotPasswordStatus', 'recoveryConfirmationPanel',
+      'recoveryConfirmationContinueBtn', 'recoveryConfirmationBackBtn', 'recoveryConfirmationStatus',
+      'recoveryPasswordForm', 'recoveryPasswordEmail',
       'recoveryNewPassword', 'recoveryConfirmPassword', 'recoveryPasswordSubmitBtn',
       'recoveryPasswordStatus', 'invalidRecoveryPanel', 'invalidRecoveryMessage',
       'invalidRecoveryRequestBtn', 'invalidRecoveryBackBtn', 'appShell', 'authenticatedUserName',
@@ -44,14 +52,12 @@
       'logoutBtn', 'accountModalBackdrop', 'accountModalTitle', 'accountModalCloseBtn', 'profileForm',
       'profileFullName', 'profileJobTitle', 'profileCompany', 'profilePhone', 'profileEmail',
       'profileRole', 'profileStatus', 'profileSaveBtn', 'profileChangePasswordBtn', 'changePasswordForm',
-      'currentPassword', 'changeNewPassword', 'changeConfirmPassword', 'changePasswordStatus',
-      'changePasswordCancelBtn', 'changePasswordSubmitBtn',
+      'changePasswordEmail', 'changePasswordCaptcha', 'changePasswordStatus', 'changePasswordCancelBtn',
+      'changePasswordSubmitBtn',
     ];
     return Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
   }
 
-  function storageGet(key) { try { return global.localStorage.getItem(key); } catch { return null; } }
-  function storageSet(key, value) { try { global.localStorage.setItem(key, value); } catch {} }
   function storageRemove(key) { try { global.localStorage.removeItem(key); } catch {} }
 
   function getAuthLinkParameters() {
@@ -59,39 +65,49 @@
     const hash = new URLSearchParams(global.location.hash.replace(/^#/, ''));
     return {
       type: search.get('type') || hash.get('type') || '',
+      hasAuthCredential: Boolean(search.get('code') || hash.get('code') || search.get('token_hash') || hash.get('token_hash') || hash.get('access_token')),
+      recoveryAction: search.get('recovery_action') || '',
+      recoveryTokenHash: search.get('token_hash') || '',
       hasError: Boolean(search.get('error') || hash.get('error') || search.get('error_description') || hash.get('error_description')),
     };
   }
 
+  function validateRecoveryTokenHash(value) {
+    const tokenHash = String(value || '');
+    return /^[A-Za-z0-9._~-]{20,512}$/.test(tokenHash) ? tokenHash : '';
+  }
+
   function detectAuthLink() {
     const parameters = getAuthLinkParameters();
-    state.invitationLinkDetected = parameters.type === 'invite';
-    state.recoveryLinkDetected = parameters.type === 'recovery';
-    if (state.invitationLinkDetected) storageSet(ACCOUNT_SETUP_STORAGE_KEY, 'pending');
-    if (state.recoveryLinkDetected) storageSet(RECOVERY_STORAGE_KEY, 'pending');
+    state.invitationLinkDetected = parameters.recoveryAction !== 'confirm' && parameters.type === 'invite' && parameters.hasAuthCredential;
+    state.recoveryLinkDetected = parameters.recoveryAction !== 'confirm' && parameters.type === 'recovery' && parameters.hasAuthCredential;
+    state.recoveryConfirmationTokenHash = parameters.recoveryAction === 'confirm' && parameters.type === 'recovery'
+      ? validateRecoveryTokenHash(parameters.recoveryTokenHash)
+      : '';
+    state.invalidRecoveryConfirmation = parameters.recoveryAction === 'confirm' && !state.recoveryConfirmationTokenHash;
+    storageRemove(ACCOUNT_SETUP_STORAGE_KEY);
+    storageRemove(RECOVERY_STORAGE_KEY);
     return parameters;
   }
 
   function requiresAccountSetup(session) {
     if (!session?.user || state.recoveryLinkDetected) return false;
-    const marker = storageGet(ACCOUNT_SETUP_STORAGE_KEY);
-    return state.invitationLinkDetected || marker === 'pending' || marker === session.user.id;
+    return state.invitationVerifiedUserId === session.user.id;
   }
 
   function requiresPasswordRecovery(session) {
     if (!session?.user) return false;
-    const marker = storageGet(RECOVERY_STORAGE_KEY);
-    return state.recoveryLinkDetected || marker === 'pending' || marker === session.user.id;
+    return state.recoveryVerifiedUserId === session.user.id;
   }
 
-  function markAccountSetupRequired(session) { if (session?.user?.id) storageSet(ACCOUNT_SETUP_STORAGE_KEY, session.user.id); }
-  function markRecoveryRequired(session) { if (session?.user?.id) storageSet(RECOVERY_STORAGE_KEY, session.user.id); }
-  function clearAccountSetupRequirement() { state.invitationLinkDetected = false; storageRemove(ACCOUNT_SETUP_STORAGE_KEY); }
-  function clearRecoveryRequirement() { state.recoveryLinkDetected = false; storageRemove(RECOVERY_STORAGE_KEY); }
+  function markAccountSetupRequired(session) { state.invitationVerifiedUserId = session?.user?.id || ''; }
+  function markRecoveryRequired(session) { state.recoveryVerifiedUserId = session?.user?.id || ''; }
+  function clearAccountSetupRequirement() { state.invitationLinkDetected = false; state.invitationVerifiedUserId = ''; storageRemove(ACCOUNT_SETUP_STORAGE_KEY); }
+  function clearRecoveryRequirement() { state.recoveryLinkDetected = false; state.recoveryVerifiedUserId = ''; storageRemove(RECOVERY_STORAGE_KEY); }
 
   function clearAuthParametersFromUrl() {
     const url = new URL(global.location.href);
-    ['type', 'code', 'token_hash', 'access_token', 'refresh_token', 'expires_at', 'expires_in', 'token_type', 'error', 'error_code', 'error_description'].forEach(key => url.searchParams.delete(key));
+    ['type', 'code', 'token_hash', 'access_token', 'refresh_token', 'expires_at', 'expires_in', 'token_type', 'error', 'error_code', 'error_description', 'recovery_action', 'confirmation_url'].forEach(key => url.searchParams.delete(key));
     url.hash = '';
     global.history.replaceState({}, document.title, `${url.pathname}${url.search}`);
   }
@@ -124,15 +140,19 @@
 
   function hideAuthPanels() {
     const elements = getElements();
-    ['loginForm', 'accountSetupForm', 'forgotPasswordForm', 'recoveryPasswordForm', 'invalidRecoveryPanel'].forEach(id => { elements[id].hidden = true; });
+    ['loginForm', 'accountSetupForm', 'forgotPasswordForm', 'recoveryConfirmationPanel', 'recoveryPasswordForm', 'invalidRecoveryPanel'].forEach(id => { elements[id].hidden = true; });
   }
 
   function updateLoginSubmitAvailability() {
-    getElements().loginSubmitBtn.disabled = state.loginBusy || (config.isCaptchaConfigured() && !state.captcha.login.token);
+    getElements().loginSubmitBtn.disabled = state.loginBusy || !config.isCaptchaConfigured() || !global.LumaCaptcha?.hasValidCaptcha('login');
   }
 
   function updateForgotSubmitAvailability() {
-    getElements().forgotPasswordSubmitBtn.disabled = state.forgotBusy || !config.isCaptchaConfigured() || !state.captcha.forgot.token;
+    getElements().forgotPasswordSubmitBtn.disabled = state.forgotBusy || Date.now() < state.forgotCooldownUntil || !config.isCaptchaConfigured() || !global.LumaCaptcha?.hasValidCaptcha('forgot');
+  }
+
+  function updateChangeSubmitAvailability() {
+    getElements().changePasswordSubmitBtn.disabled = state.changeBusy || Date.now() < state.changeCooldownUntil || !config.isCaptchaConfigured() || !global.LumaCaptcha?.hasValidCaptcha('change');
   }
 
   function setLoginBusy(isBusy) {
@@ -152,10 +172,28 @@
     updateForgotSubmitAvailability();
   }
 
+  function setChangeBusy(isBusy) {
+    const {changePasswordSubmitBtn} = getElements();
+    state.changeBusy = isBusy;
+    changePasswordSubmitBtn.textContent = isBusy ? 'Sending...' : 'Send Password Change Link';
+    updateChangeSubmitAvailability();
+  }
+
+  function beginEmailRequestCooldown(kind) {
+    state[`${kind}CooldownUntil`] = Date.now() + EMAIL_REQUEST_COOLDOWN_MS;
+    if (kind === 'forgot') updateForgotSubmitAvailability();
+    else updateChangeSubmitAvailability();
+    global.setTimeout(() => {
+      state[`${kind}CooldownUntil`] = 0;
+      if (kind === 'forgot') updateForgotSubmitAvailability();
+      else updateChangeSubmitAvailability();
+    }, EMAIL_REQUEST_COOLDOWN_MS);
+  }
+
   function setPasswordFormBusy(prefix, isBusy) {
     const elements = getElements();
     const map = prefix === 'recovery'
-      ? ['recoveryNewPassword', 'recoveryConfirmPassword', 'recoveryPasswordSubmitBtn', 'Updating...', 'Update Password']
+      ? ['recoveryNewPassword', 'recoveryConfirmPassword', 'recoveryPasswordSubmitBtn', 'Setting Password...', 'Set New Password']
       : ['newPassword', 'confirmPassword', 'setPasswordBtn', 'Setting Password...', 'Set Password'];
     elements[map[0]].disabled = isBusy;
     elements[map[1]].disabled = isBusy;
@@ -164,49 +202,43 @@
   }
 
   function resetCaptcha(kind) {
-    const captcha = state.captcha[kind];
-    captcha.token = '';
-    if (captcha.widgetId !== null && global.turnstile?.reset) {
-      try { global.turnstile.reset(captcha.widgetId); } catch {}
-    }
-    if (kind === 'login') updateLoginSubmitAvailability(); else updateForgotSubmitAvailability();
+    global.LumaCaptcha?.resetCaptcha(kind);
+    if (kind === 'login') updateLoginSubmitAvailability();
+    else if (kind === 'forgot') updateForgotSubmitAvailability();
+    else updateChangeSubmitAvailability();
+  }
+
+  function captchaUi(kind) {
+    const elements = getElements();
+    if (kind === 'login') return {container: elements.loginCaptcha, status: elements.loginStatus};
+    if (kind === 'forgot') return {container: elements.forgotCaptcha, status: elements.forgotPasswordStatus};
+    return {container: elements.changePasswordCaptcha, status: elements.changePasswordStatus};
+  }
+
+  function updateCaptchaSubmitAvailability(kind) {
+    if (kind === 'login') updateLoginSubmitAvailability();
+    else if (kind === 'forgot') updateForgotSubmitAvailability();
+    else updateChangeSubmitAvailability();
+  }
+
+  function handleCaptchaState(kind, captchaState) {
+    const {status} = captchaUi(kind);
+    if (captchaState === 'verified') setStatus(status, '');
+    else if (captchaState === 'expired') setStatus(status, 'CAPTCHA verification expired. Please try again.');
+    else if (captchaState === 'error') setStatus(status, 'CAPTCHA verification failed. Please try again.');
+    updateCaptchaSubmitAvailability(kind);
   }
 
   function renderCaptcha(kind) {
-    if (!config.isCaptchaConfigured()) {
-      if (kind === 'login') {
-        getElements().loginTurnstile.hidden = true;
-        updateLoginSubmitAvailability();
-      } else {
-        setStatus(getElements().forgotPasswordStatus, 'Password reset verification is not configured. Contact the application administrator.');
-        updateForgotSubmitAvailability();
-      }
-      return;
-    }
-    const captcha = state.captcha[kind];
-    const container = kind === 'login' ? getElements().loginTurnstile : getElements().forgotTurnstile;
+    const {container, status} = captchaUi(kind);
     container.hidden = false;
-    if (captcha.widgetId !== null) return;
-    if (!global.turnstile?.render) {
-      captcha.renderAttempts += 1;
-      if (captcha.renderAttempts <= 50) global.setTimeout(() => renderCaptcha(kind), 100);
-      else setStatus(kind === 'login' ? getElements().loginStatus : getElements().forgotPasswordStatus, 'Security verification could not load. Refresh the page and try again.');
+    if (!config.isCaptchaConfigured() || !global.LumaCaptcha?.isConfigured()) {
+      setStatus(status, 'CAPTCHA is not configured. Contact the application administrator.');
+      updateCaptchaSubmitAvailability(kind);
       return;
     }
-    captcha.widgetId = global.turnstile.render(container, {
-      sitekey: config.TURNSTILE_SITE_KEY,
-      callback(token) {
-        captcha.token = token;
-        if (kind === 'login') updateLoginSubmitAvailability(); else updateForgotSubmitAvailability();
-      },
-      'expired-callback'() { resetCaptcha(kind); },
-      'error-callback'() {
-        captcha.token = '';
-        setStatus(kind === 'login' ? getElements().loginStatus : getElements().forgotPasswordStatus, 'Security verification failed. Please try again.');
-        if (kind === 'login') updateLoginSubmitAvailability(); else updateForgotSubmitAvailability();
-      },
-      theme: 'light',
-    });
+    global.LumaCaptcha.renderCaptcha(kind, container, captchaState => handleCaptchaState(kind, captchaState));
+    updateCaptchaSubmitAvailability(kind);
   }
 
   function closeAccountMenu() {
@@ -216,11 +248,9 @@
   }
 
   function closeAccountModal() {
-    const {accountModalBackdrop, currentPassword, changeNewPassword, changeConfirmPassword} = getElements();
+    const {accountModalBackdrop} = getElements();
     accountModalBackdrop.hidden = true;
-    currentPassword.value = '';
-    changeNewPassword.value = '';
-    changeConfirmPassword.value = '';
+    resetCaptcha('change');
   }
 
   function resetAuthenticatedUi() {
@@ -247,6 +277,8 @@
     authLoginHeading.hidden = false;
     hideAuthPanels();
     loginForm.hidden = false;
+    resetCaptcha('login');
+    resetCaptcha('forgot');
     setLoginBusy(false);
     setStatus(loginStatus, message);
     renderCaptcha('login');
@@ -263,11 +295,64 @@
     authLoginHeading.hidden = true;
     hideAuthPanels();
     forgotPasswordForm.hidden = false;
+    resetCaptcha('login');
+    resetCaptcha('forgot');
     forgotPasswordEmail.value = loginEmail.value.trim();
     setStatus(forgotPasswordStatus, '');
     setForgotBusy(false);
     renderCaptcha('forgot');
     requestAnimationFrame(() => forgotPasswordEmail.focus());
+  }
+
+  function showRecoveryConfirmation() {
+    const {authRoot, authLoading, authLoginHeading, recoveryConfirmationPanel, recoveryConfirmationStatus, appShell} = getElements();
+    state.authorizationRequestId += 1;
+    state.authorizingUserId = null;
+    state.session = null;
+    setRuntimeRole(null);
+    appShell.hidden = true;
+    authRoot.hidden = false;
+    authLoading.hidden = true;
+    authLoginHeading.hidden = true;
+    hideAuthPanels();
+    recoveryConfirmationPanel.hidden = false;
+    setStatus(recoveryConfirmationStatus, '');
+  }
+
+  async function continueRecoveryConfirmation() {
+    const tokenHash = validateRecoveryTokenHash(state.recoveryConfirmationTokenHash);
+    const {recoveryConfirmationContinueBtn, recoveryConfirmationStatus} = getElements();
+    if (!tokenHash) {
+      setStatus(getElements().recoveryConfirmationStatus, 'This password-change link is invalid. Request a new link.');
+      return;
+    }
+    recoveryConfirmationContinueBtn.disabled = true;
+    recoveryConfirmationContinueBtn.textContent = 'Confirming...';
+    state.recoveryVerificationPending = true;
+    try {
+      const {data, error} = await global.LumaSupabase.getClient().auth.verifyOtp({token_hash: tokenHash, type: 'recovery'});
+      if (error || !data?.session) throw error || new Error('Recovery session unavailable.');
+      state.recoveryConfirmationTokenHash = '';
+      state.recoveryVerificationPending = false;
+      state.recoveryLinkDetected = true;
+      markRecoveryRequired(data.session);
+      clearAuthParametersFromUrl();
+      showRecoveryPassword(data.session);
+    } catch (error) {
+      state.recoveryVerificationPending = false;
+      logSafeError('Password recovery confirmation failed.', error);
+      setStatus(recoveryConfirmationStatus, 'This password link is invalid or has expired. Request a new password link.');
+    } finally {
+      recoveryConfirmationContinueBtn.disabled = false;
+      recoveryConfirmationContinueBtn.textContent = 'Continue Password Change';
+    }
+  }
+
+  function cancelRecoveryConfirmation() {
+    state.recoveryConfirmationTokenHash = '';
+    state.invalidRecoveryConfirmation = false;
+    clearAuthParametersFromUrl();
+    showLogin();
   }
 
   function showAccountSetup(session) {
@@ -286,6 +371,7 @@
     accountSetupEmail.textContent = session.user.email || 'your invited account';
     setPasswordFormBusy('invite', false);
     setStatus(accountSetupStatus, '');
+    updatePasswordRequirementUi('newPassword');
     requestAnimationFrame(() => newPassword.focus());
   }
 
@@ -305,6 +391,7 @@
     recoveryPasswordEmail.textContent = session.user.email || 'your account';
     setPasswordFormBusy('recovery', false);
     setStatus(recoveryPasswordStatus, '');
+    updatePasswordRequirementUi('recoveryNewPassword');
     requestAnimationFrame(() => recoveryNewPassword.focus());
   }
 
@@ -318,6 +405,16 @@
     authLoginHeading.hidden = true;
     hideAuthPanels();
     invalidRecoveryPanel.hidden = false;
+  }
+
+  function showAuthLinkLoading(message) {
+    const {authRoot, authLoading, authLoginHeading, appShell} = getElements();
+    appShell.hidden = true;
+    authRoot.hidden = false;
+    authLoading.textContent = message;
+    authLoading.hidden = false;
+    authLoginHeading.hidden = true;
+    hideAuthPanels();
   }
 
   function showAuthorizationLoading(session) {
@@ -394,23 +491,47 @@
     }
   }
 
+  function validatePassword(password) {
+    const value = String(password || '');
+    const rules = {
+      length: value.length >= MIN_PASSWORD_LENGTH,
+      uppercase: /[A-Z]/.test(value),
+      lowercase: /[a-z]/.test(value),
+      digit: /\d/.test(value),
+    };
+    return {
+      valid: Object.values(rules).every(Boolean),
+      rules,
+      message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters and include an uppercase letter, a lowercase letter, and a number.`,
+    };
+  }
+
+  function updatePasswordRequirementUi(inputId) {
+    const input = getElements()[inputId];
+    const root = document.querySelector?.(`[data-password-requirements="${inputId}"]`);
+    if (!input || !root) return;
+    const validation = validatePassword(input.value);
+    root.querySelectorAll('[data-password-rule]').forEach(item => {
+      item.classList.toggle('met', Boolean(validation.rules[item.getAttribute('data-password-rule')]));
+    });
+  }
+
   function validateNewPassword(password, confirmation) {
-    if (!password.trim()) return 'Enter a new password.';
-    if (password.length < MIN_PASSWORD_LENGTH) return `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`;
-    if (password !== confirmation) return 'The passwords do not match.';
+    if (!String(password || '').trim()) return 'Enter a new password.';
+    const validation = validatePassword(password);
+    if (!validation.valid) return validation.message;
+    if (password !== confirmation) return 'Passwords do not match.';
     return '';
   }
 
   function passwordUpdateMessage(error, context) {
-    const code = String(error?.code || '').toLowerCase();
-    if (code.includes('weak_password')) return `The new password does not meet the password policy. Use at least ${MIN_PASSWORD_LENGTH} characters.`;
+    const code = `${error?.code || ''} ${error?.name || ''}`.toLowerCase();
+    if (code.includes('weak_password')) return validatePassword('').message;
     if (code.includes('same_password')) return 'Choose a password different from your current password.';
-    if (code.includes('invalid_credentials') || code.includes('reauthentication_not_valid') || code.includes('current_password_mismatch')) return 'The current password is incorrect.';
-    if (code.includes('current_password_required')) return 'Enter your current password.';
     if (code.includes('session_not_found') || code.includes('reauthentication_needed')) return context === 'recovery'
       ? 'This password-reset link is invalid or has expired. Request a new reset link.'
       : 'Your session is no longer valid. Sign in again and retry.';
-    return context === 'change' ? 'Could not change the password. Verify the current password and try again.' : 'Could not update the password. Request a new link and try again.';
+    return 'Could not update the password. Request a new link and try again.';
   }
 
   function isCaptchaError(error) {
@@ -421,18 +542,18 @@
     event.preventDefault();
     const {loginEmail, loginPassword, loginStatus} = getElements();
     setStatus(loginStatus, '');
-    if (config.isCaptchaConfigured() && !state.captcha.login.token) {
-      setStatus(loginStatus, 'Complete the security verification before signing in.');
+    const captchaToken = global.LumaCaptcha?.getCaptchaToken('login') || '';
+    if (!captchaToken) {
+      setStatus(loginStatus, 'Please complete the CAPTCHA.');
       return;
     }
     setLoginBusy(true);
     try {
-      const credentials = {email: loginEmail.value.trim(), password: loginPassword.value};
-      if (config.isCaptchaConfigured()) credentials.options = {captchaToken: state.captcha.login.token};
+      const credentials = {email: loginEmail.value.trim(), password: loginPassword.value, options: {captchaToken: captchaToken}};
       const {data, error} = await global.LumaSupabase.getClient().auth.signInWithPassword(credentials);
       loginPassword.value = '';
       if (error || !data.session) {
-        setStatus(loginStatus, isCaptchaError(error) ? 'Security verification failed. Please try again.' : 'Unable to sign in. Check your email and password.');
+        setStatus(loginStatus, isCaptchaError(error) ? 'CAPTCHA verification failed. Please try again.' : 'Unable to sign in. Check your email and password.');
         return;
       }
       await routeAuthenticatedSession(data.session);
@@ -440,7 +561,7 @@
       logSafeError('Authentication sign-in failed.', error);
       setStatus(loginStatus, 'Unable to reach the authentication service. Please try again.');
     } finally {
-      if (config.isCaptchaConfigured()) resetCaptcha('login');
+      resetCaptcha('login');
       setLoginBusy(false);
     }
   }
@@ -453,19 +574,21 @@
       setStatus(forgotPasswordStatus, 'Password reset verification is not configured. Contact the application administrator.');
       return;
     }
-    if (!state.captcha.forgot.token) {
-      setStatus(forgotPasswordStatus, 'Complete the security verification before requesting a reset link.');
+    const captchaToken = global.LumaCaptcha?.getCaptchaToken('forgot') || '';
+    if (!captchaToken) {
+      setStatus(forgotPasswordStatus, 'Please complete the CAPTCHA.');
       return;
     }
     setForgotBusy(true);
     try {
       const {error} = await global.LumaSupabase.getClient().auth.resetPasswordForEmail(forgotPasswordEmail.value.trim(), {
         redirectTo: config.getPasswordResetRedirectUrl(),
-        captchaToken: state.captcha.forgot.token,
+        captchaToken: captchaToken,
       });
-      if (error && isCaptchaError(error)) setStatus(forgotPasswordStatus, 'Security verification failed. Please try again.');
+      if (error && isCaptchaError(error)) setStatus(forgotPasswordStatus, 'CAPTCHA verification failed. Please try again.');
       else {
         if (error) logSafeError('Password reset request was not accepted.', error);
+        beginEmailRequestCooldown('forgot');
         setStatus(forgotPasswordStatus, GENERIC_RESET_CONFIRMATION, 'success');
       }
     } catch (error) {
@@ -508,20 +631,34 @@
     setStatus(recoveryPasswordStatus, validation);
     if (validation) return;
     setPasswordFormBusy('recovery', true);
+    let passwordUpdated = false;
     try {
-      const {data, error} = await global.LumaSupabase.getClient().auth.updateUser({password: recoveryNewPassword.value});
+      const client = global.LumaSupabase.getClient();
+      const {error} = await client.auth.updateUser({password: recoveryNewPassword.value});
       if (error) throw error;
-      if (data.user && state.session) state.session = {...state.session, user: data.user};
+      passwordUpdated = true;
       recoveryNewPassword.value = '';
       recoveryConfirmPassword.value = '';
       clearRecoveryRequirement();
       clearAuthParametersFromUrl();
-      setStatus(recoveryPasswordStatus, 'Password updated successfully. Opening LUMA BOM Manager...', 'success');
-      await new Promise(resolve => global.setTimeout(resolve, 700));
-      await routeAuthenticatedSession(state.session);
+      const successMessage = 'Your password has been changed successfully. Please sign in again.';
+      state.pendingSignOutMessage = successMessage;
+      let {error: signOutError} = await client.auth.signOut({scope: 'global'});
+      if (signOutError) {
+        logSafeError('Global sign-out after password recovery failed.', signOutError);
+        ({error: signOutError} = await client.auth.signOut({scope: 'local'}));
+      }
+      if (signOutError) throw signOutError;
+      if (state.pendingSignOutMessage) {
+        state.pendingSignOutMessage = '';
+        showLogin(successMessage);
+      }
     } catch (error) {
       logSafeError('Password recovery update failed.', error);
-      setStatus(recoveryPasswordStatus, passwordUpdateMessage(error, 'recovery'));
+      state.pendingSignOutMessage = '';
+      setStatus(recoveryPasswordStatus, passwordUpdated
+        ? 'Your password was changed, but automatic sign-out failed. Close this browser window before signing in again.'
+        : passwordUpdateMessage(error, 'recovery'));
     } finally { setPasswordFormBusy('recovery', false); }
   }
 
@@ -532,15 +669,29 @@
     changePasswordForm.hidden = true;
   }
 
-  function showChangePasswordPanel() {
-    const {accountModalBackdrop, accountModalTitle, profileForm, changePasswordForm, currentPassword, changePasswordStatus} = getElements();
+  async function showChangePasswordPanel() {
+    const {accountModalBackdrop, accountModalTitle, profileForm, changePasswordForm, changePasswordEmail, changePasswordStatus} = getElements();
     closeAccountMenu();
     accountModalBackdrop.hidden = false;
     accountModalTitle.textContent = 'Change Password';
     profileForm.hidden = true;
     changePasswordForm.hidden = false;
-    setStatus(changePasswordStatus, '');
-    requestAnimationFrame(() => currentPassword.focus());
+    changePasswordEmail.value = '';
+    resetCaptcha('change');
+    setStatus(changePasswordStatus, 'Loading your account...', 'success');
+    setChangeBusy(true);
+    try {
+      const {data, error} = await global.LumaSupabase.getClient().auth.getUser();
+      if (error || !data?.user?.email) throw error || new Error('Authenticated email unavailable.');
+      changePasswordEmail.value = data.user.email;
+      setStatus(changePasswordStatus, '');
+      setChangeBusy(false);
+      renderCaptcha('change');
+    } catch (error) {
+      logSafeError('Authenticated account lookup failed.', error);
+      setStatus(changePasswordStatus, 'Could not verify your signed-in account. Sign in again and retry.');
+      setChangeBusy(false);
+    }
   }
 
   function populateProfileForm(profile) {
@@ -601,38 +752,34 @@
     event.preventDefault();
     const elements = getElements();
     setStatus(elements.changePasswordStatus, '');
-    if (!elements.currentPassword.value) {
-      setStatus(elements.changePasswordStatus, 'Enter your current password.');
+    if (!config.isCaptchaConfigured()) {
+      setStatus(elements.changePasswordStatus, 'Password-change verification is not configured. Contact the application administrator.');
       return;
     }
-    const validation = validateNewPassword(elements.changeNewPassword.value, elements.changeConfirmPassword.value);
-    if (validation) { setStatus(elements.changePasswordStatus, validation); return; }
-    elements.currentPassword.disabled = true;
-    elements.changeNewPassword.disabled = true;
-    elements.changeConfirmPassword.disabled = true;
-    elements.changePasswordSubmitBtn.disabled = true;
-    elements.changePasswordSubmitBtn.textContent = 'Changing Password...';
+    const captchaToken = global.LumaCaptcha?.getCaptchaToken('change') || '';
+    if (!captchaToken) {
+      setStatus(elements.changePasswordStatus, 'Please complete the CAPTCHA.');
+      return;
+    }
+    setChangeBusy(true);
     try {
-      const {data, error} = await global.LumaSupabase.getClient().auth.updateUser({
-        email: state.session.user.email,
-        current_password: elements.currentPassword.value,
-        password: elements.changeNewPassword.value,
+      const client = global.LumaSupabase.getClient();
+      const {data: userData, error: userError} = await client.auth.getUser();
+      const authenticatedEmail = userData?.user?.email || '';
+      if (userError || !authenticatedEmail || authenticatedEmail !== state.session?.user?.email) throw userError || new Error('Authenticated account mismatch.');
+      const {error} = await client.auth.resetPasswordForEmail(authenticatedEmail, {
+        redirectTo: config.getPasswordResetRedirectUrl(),
+        captchaToken: captchaToken,
       });
       if (error) throw error;
-      if (data.user && state.session) state.session = {...state.session, user: data.user};
-      elements.currentPassword.value = '';
-      elements.changeNewPassword.value = '';
-      elements.changeConfirmPassword.value = '';
-      setStatus(elements.changePasswordStatus, 'Password changed successfully.', 'success');
+      beginEmailRequestCooldown('change');
+      setStatus(elements.changePasswordStatus, 'Password change link sent.\n\nCheck your email and open the link to continue.', 'success');
     } catch (error) {
-      logSafeError('Authenticated password change failed.', error);
-      setStatus(elements.changePasswordStatus, passwordUpdateMessage(error, 'change'));
+      logSafeError('Authenticated password-change request failed.', error);
+      setStatus(elements.changePasswordStatus, isCaptchaError(error) ? 'CAPTCHA verification failed. Please try again.' : 'Could not send the password-change link. Please try again later.');
     } finally {
-      elements.currentPassword.disabled = false;
-      elements.changeNewPassword.disabled = false;
-      elements.changeConfirmPassword.disabled = false;
-      elements.changePasswordSubmitBtn.disabled = false;
-      elements.changePasswordSubmitBtn.textContent = 'Change Password';
+      resetCaptcha('change');
+      setChangeBusy(false);
     }
   }
 
@@ -662,6 +809,8 @@
     elements.forgotPasswordBtn.addEventListener('click', showForgotPassword);
     elements.forgotPasswordForm.addEventListener('submit', handleForgotPassword);
     elements.forgotPasswordBackBtn.addEventListener('click', () => showLogin());
+    elements.recoveryConfirmationContinueBtn.addEventListener('click', continueRecoveryConfirmation);
+    elements.recoveryConfirmationBackBtn.addEventListener('click', cancelRecoveryConfirmation);
     elements.accountSetupForm.addEventListener('submit', handleAccountSetup);
     elements.recoveryPasswordForm.addEventListener('submit', handleRecoveryPassword);
     elements.invalidRecoveryRequestBtn.addEventListener('click', showForgotPassword);
@@ -672,14 +821,16 @@
       elements.accountMenuBtn.setAttribute('aria-expanded', String(willOpen));
     });
     elements.myProfileBtn.addEventListener('click', () => void openProfileModal());
-    elements.changePasswordBtn.addEventListener('click', showChangePasswordPanel);
+    elements.changePasswordBtn.addEventListener('click', () => void showChangePasswordPanel());
     elements.logoutBtn.addEventListener('click', handleLogout);
     elements.accountModalCloseBtn.addEventListener('click', closeAccountModal);
     elements.accountModalBackdrop.addEventListener('click', event => { if (event.target === elements.accountModalBackdrop) closeAccountModal(); });
     elements.profileForm.addEventListener('submit', handleProfileSave);
-    elements.profileChangePasswordBtn.addEventListener('click', showChangePasswordPanel);
+    elements.profileChangePasswordBtn.addEventListener('click', () => void showChangePasswordPanel());
     elements.changePasswordForm.addEventListener('submit', handleChangePassword);
     elements.changePasswordCancelBtn.addEventListener('click', () => { showProfilePanel(); setStatus(elements.changePasswordStatus, ''); });
+    elements.newPassword.addEventListener('input', () => updatePasswordRequirementUi('newPassword'));
+    elements.recoveryNewPassword.addEventListener('input', () => updatePasswordRequirementUi('recoveryNewPassword'));
     document.addEventListener('click', event => {
       if (!elements.accountMenu.hidden && !elements.accountMenu.contains(event.target) && !elements.accountMenuBtn.contains(event.target)) closeAccountMenu();
     });
@@ -711,17 +862,38 @@
           showRecoveryPassword(session);
           return;
         }
+        if (state.recoveryVerificationPending) return;
+        if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session && state.invitationLinkDetected) {
+          markAccountSetupRequired(session);
+          showAccountSetup(session);
+          return;
+        }
+        if (state.recoveryConfirmationTokenHash) {
+          showRecoveryConfirmation();
+          return;
+        }
         if (session) void routeAuthenticatedSession(session);
         else if (event === 'SIGNED_OUT') {
           clearAccountSetupRequirement();
           clearRecoveryRequirement();
-          showLogin();
+          const message = state.pendingSignOutMessage;
+          state.pendingSignOutMessage = '';
+          showLogin(message);
         }
       });
       const {data, error} = await client.auth.getSession();
       if (error) throw error;
-      if (data.session) await routeAuthenticatedSession(data.session);
-      else if (state.recoveryLinkDetected || (authLinkParameters.hasError && storageGet(RECOVERY_STORAGE_KEY))) showInvalidRecovery();
+      if (state.recoveryConfirmationTokenHash) showRecoveryConfirmation();
+      else if (state.invalidRecoveryConfirmation) showInvalidRecovery();
+      else if (authLinkParameters.hasError && authLinkParameters.type === 'recovery') showInvalidRecovery();
+      else if (data.session && state.invitationLinkDetected) {
+        markAccountSetupRequired(data.session);
+        showAccountSetup(data.session);
+      }
+      else if (data.session && (state.recoveryLinkDetected || state.invitationLinkDetected)) showInvalidRecovery();
+      else if (data.session) await routeAuthenticatedSession(data.session);
+      else if (state.recoveryLinkDetected) showInvalidRecovery();
+      else if (state.invitationLinkDetected) showAuthLinkLoading('Confirming your invitation...');
       else {
         clearAccountSetupRequirement();
         if (authLinkParameters.hasError) clearRecoveryRequirement();
@@ -741,6 +913,7 @@
     getProfile: () => state.profile,
     isAdmin: () => state.role === USER_ROLES.ADMIN,
     openProfile: () => openProfileModal(),
+    validatePassword,
   });
 
   document.addEventListener('DOMContentLoaded', startAuthentication);

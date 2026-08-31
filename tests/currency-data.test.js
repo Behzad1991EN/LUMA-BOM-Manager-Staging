@@ -34,7 +34,7 @@ test('database constraints accept all current selectable currencies', () => {
 });
 
 test('Administration cards use one consistent icon-content-arrow structure', () => {
-  assert.equal((adminSource.match(/class="administration-card-icon"/g) || []).length, 7);
+  assert.equal((adminSource.match(/class="administration-card-icon"/g) || []).length, 8);
   assert.match(adminSource, /Manage engineering Part Master records/);
   assert.match(adminSource, /Manage container capacities and logistics rates/);
   assert.match(styleSource, /grid-auto-rows:\s*1fr/);

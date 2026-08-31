@@ -155,12 +155,12 @@ body {
     background: var(--tab-idle);
 }
 
-.turnstile-container {
+.captcha-container {
     min-height: 65px;
     margin-top: 8px;
 }
 
-.turnstile-container[hidden] {
+.captcha-container[hidden] {
     min-height: 0;
 }
 
@@ -171,6 +171,7 @@ body {
     background: #FFF0F0;
     color: #9B1C1C;
     line-height: 1.4;
+    white-space: pre-line;
 }
 
 .login-status.success {
@@ -201,6 +202,61 @@ body {
     overflow-wrap: anywhere;
 }
 
+.password-security-notice {
+    display: grid;
+    gap: 4px;
+    margin: 2px 0 6px;
+    padding: 12px 13px;
+    border: 1px solid #E39A31;
+    border-left: 4px solid var(--accent-dark);
+    background: #FFF8E8;
+    color: #6B4100;
+    line-height: 1.4;
+}
+
+.password-security-notice strong {
+    color: var(--accent-dark);
+}
+
+.password-requirements {
+    margin: 0 0 3px;
+    padding: 9px 11px;
+    border: 1px solid var(--border);
+    background: #FAFAFA;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.password-requirements > span {
+    font-weight: 700;
+}
+
+.password-requirements ul {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 10px;
+    margin: 7px 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.password-requirements li::before {
+    content: "○";
+    display: inline-block;
+    width: 18px;
+    color: #8B8B8B;
+    font-weight: 700;
+}
+
+.password-requirements li.met {
+    color: #176536;
+}
+
+.password-requirements li.met::before {
+    content: "✓";
+    color: #176536;
+}
+
 .auth-error-panel {
     display: grid;
     gap: 9px;
@@ -211,6 +267,15 @@ body {
     border-color: var(--accent-dark);
     background: var(--accent);
     color: #fff;
+}
+
+.recovery-confirmation-panel {
+    text-align: left;
+}
+
+.recovery-confirmation-panel h2,
+.recovery-confirmation-panel p {
+    text-align: center;
 }
 
 button,
@@ -2315,6 +2380,214 @@ th.wrap {
     background: #FFFDF9;
 }
 
+.overhead-settings-form {
+    max-width: 980px;
+}
+
+.overhead-input-with-unit {
+    display: grid;
+    grid-template-columns: auto minmax(120px, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+}
+
+.overhead-input-with-unit > span,
+.overhead-input-with-unit > em {
+    color: var(--muted);
+    font-style: normal;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.overhead-coefficient-preview output {
+    min-height: 36px;
+    padding: 9px 10px;
+    border: 1px solid #8ABAB5;
+    background: #EDF9F7;
+    color: var(--export);
+    font-size: 18px;
+    font-weight: 800;
+}
+
+.overhead-coefficient-preview small {
+    color: var(--muted);
+    line-height: 1.35;
+}
+
+.analysis-overhead-section {
+    margin-top: 26px;
+    padding: 18px;
+    border: 1px solid var(--accent);
+    background: #FFFDF9;
+}
+
+.analysis-overhead-heading {
+    margin-bottom: 16px;
+}
+
+.analysis-commercial-inputs {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(150px, 1fr));
+    gap: 12px;
+    margin-bottom: 18px;
+    padding: 14px;
+    border: 1px solid #E2C08F;
+    background: #FFF7E9;
+}
+
+.analysis-commercial-inputs label {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 6px;
+    font-weight: 700;
+}
+
+.analysis-commercial-inputs label > span {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.analysis-commercial-inputs label em {
+    color: var(--muted);
+    font-size: 11px;
+    font-style: normal;
+    font-weight: 700;
+}
+
+.analysis-commercial-inputs input,
+.analysis-commercial-inputs select {
+    width: 100%;
+    min-height: 38px;
+    padding: 7px 9px;
+    border: 1px solid var(--border-dark);
+    background: #FFF;
+}
+
+.analysis-commercial-inputs .analysis-input-error input {
+    border-color: #C62828;
+    background: #FFF3F3;
+}
+
+.analysis-commercial-inputs .analysis-input-error small {
+    color: #A11818;
+    line-height: 1.3;
+}
+
+.analysis-overhead-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.analysis-overhead-grid article {
+    min-width: 0;
+    padding: 15px;
+    border: 1px solid var(--border);
+    background: var(--card);
+}
+
+.analysis-overhead-grid h3 {
+    margin: 0 0 12px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #EFAD52;
+    color: var(--accent-dark);
+    font-size: 16px;
+}
+
+.analysis-overhead-grid dl {
+    display: grid;
+    gap: 11px;
+    margin: 0;
+}
+
+.analysis-overhead-grid dl > div {
+    display: grid;
+    grid-template-columns: minmax(150px, .8fr) minmax(0, 1.2fr);
+    gap: 14px;
+    align-items: start;
+}
+
+.analysis-overhead-grid dt {
+    color: var(--muted);
+    font-weight: 700;
+}
+
+.analysis-overhead-grid dd {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 3px;
+    margin: 0;
+    text-align: right;
+    overflow-wrap: anywhere;
+}
+
+.analysis-overhead-grid dd span {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.analysis-overhead-grid dd strong {
+    color: var(--accent-dark);
+    font-size: 17px;
+}
+
+.analysis-overhead-summary {
+    border-color: #8ABAB5 !important;
+    background: #EDF9F7 !important;
+}
+
+.analysis-final-price-summary {
+    display: grid;
+    grid-template-columns: minmax(150px, 1fr) auto minmax(150px, 1fr) auto minmax(150px, 1fr) auto minmax(130px, .8fr) auto minmax(170px, 1.1fr);
+    align-items: stretch;
+    gap: 8px;
+    margin-top: 20px;
+    padding: 14px;
+    border: 2px solid var(--export);
+    background: #F5FCFB;
+}
+
+.analysis-final-price-summary > div {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px;
+    background: #FFF;
+}
+
+.analysis-final-price-summary > b {
+    align-self: center;
+    color: var(--accent-dark);
+    font-size: 22px;
+}
+
+.analysis-final-price-summary span {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.analysis-final-price-summary strong {
+    color: var(--accent-dark);
+    font-size: 17px;
+    overflow-wrap: anywhere;
+}
+
+.analysis-final-price-summary .analysis-final-price {
+    background: var(--export);
+}
+
+.analysis-final-price-summary .analysis-final-price span,
+.analysis-final-price-summary .analysis-final-price strong {
+    color: #FFF;
+}
+
 .analysis-vat-setting {
     display: flex;
     align-items: center;
@@ -3891,6 +4164,19 @@ th.wrap {
     .form-row-paired .paired-inputs {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+
+    .analysis-commercial-inputs,
+    .analysis-overhead-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .analysis-final-price-summary {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .analysis-final-price-summary > b {
+        transform: rotate(90deg);
+    }
 }
 
 @media (max-width: 900px) {
@@ -3905,6 +4191,19 @@ th.wrap {
 }
 
 @media (max-width: 768px) {
+    .analysis-commercial-inputs,
+    .analysis-overhead-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .analysis-overhead-grid dl > div {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .analysis-overhead-grid dd {
+        text-align: left;
+    }
+
     .form-row-paired .paired-inputs {
         grid-column: 1;
         grid-template-columns: minmax(0, 1fr);

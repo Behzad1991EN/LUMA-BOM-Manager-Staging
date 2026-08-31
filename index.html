@@ -22,7 +22,7 @@
         <input id="loginEmail" name="email" type="email" autocomplete="username" required />
         <label for="loginPassword">Password</label>
         <input id="loginPassword" name="password" type="password" autocomplete="current-password" required />
-        <div id="loginTurnstile" class="turnstile-container" hidden></div>
+        <div id="loginCaptcha" class="captcha-container" aria-label="hCaptcha security verification"></div>
         <button id="loginSubmitBtn" type="submit">Sign In</button>
         <button id="forgotPasswordBtn" class="auth-link-button" type="button">Forgot password?</button>
         <p id="loginStatus" class="login-status" role="alert" aria-live="polite" hidden></p>
@@ -32,8 +32,21 @@
           <h2 id="accountSetupTitle">Complete Your Account</h2>
           <p>Create a password for <strong id="accountSetupEmail"></strong>.</p>
         </div>
+        <aside class="password-security-notice" aria-label="Password security notice">
+          <strong>Security notice</strong>
+          <span>Do NOT use your KSI Email Password here. Create a different password.</span>
+        </aside>
         <label for="newPassword">New Password</label>
         <input id="newPassword" name="new-password" type="password" autocomplete="new-password" minlength="8" required />
+        <div class="password-requirements" data-password-requirements="newPassword" aria-live="polite">
+          <span>Password must contain:</span>
+          <ul>
+            <li data-password-rule="length">At least 8 characters</li>
+            <li data-password-rule="uppercase">One uppercase letter</li>
+            <li data-password-rule="lowercase">One lowercase letter</li>
+            <li data-password-rule="digit">One number</li>
+          </ul>
+        </div>
         <label for="confirmPassword">Confirm Password</label>
         <input id="confirmPassword" name="confirm-password" type="password" autocomplete="new-password" minlength="8" required />
         <button id="setPasswordBtn" type="submit">Set Password</button>
@@ -46,26 +59,46 @@
         </div>
         <label for="forgotPasswordEmail">Email</label>
         <input id="forgotPasswordEmail" name="reset-email" type="email" autocomplete="email" required />
-        <div id="forgotTurnstile" class="turnstile-container" aria-label="Security verification"></div>
+        <div id="forgotCaptcha" class="captcha-container" aria-label="hCaptcha security verification"></div>
         <button id="forgotPasswordSubmitBtn" type="submit" disabled>Send Reset Link</button>
         <button id="forgotPasswordBackBtn" class="auth-link-button" type="button">Back to Sign In</button>
         <p id="forgotPasswordStatus" class="login-status" role="alert" aria-live="polite" hidden></p>
       </form>
+      <section id="recoveryConfirmationPanel" class="account-setup-heading auth-error-panel recovery-confirmation-panel" aria-labelledby="recoveryConfirmationTitle" hidden>
+        <h2 id="recoveryConfirmationTitle">Confirm Password Change</h2>
+        <p>To protect this link from automatic email scanners, continue only if you requested this password change.</p>
+        <button id="recoveryConfirmationContinueBtn" type="button">Continue Password Change</button>
+        <button id="recoveryConfirmationBackBtn" class="auth-link-button" type="button">Back to Sign In</button>
+        <p id="recoveryConfirmationStatus" class="login-status" role="alert" aria-live="polite" hidden></p>
+      </section>
       <form id="recoveryPasswordForm" class="login-form account-setup-form" aria-labelledby="recoveryPasswordTitle" hidden>
         <div class="account-setup-heading">
           <h2 id="recoveryPasswordTitle">Set New Password</h2>
           <p>Choose a new password for <strong id="recoveryPasswordEmail"></strong>.</p>
         </div>
+        <aside class="password-security-notice" aria-label="Password security notice">
+          <strong>Security notice</strong>
+          <span>Do NOT use your KSI Email Password here. Create a different password.</span>
+        </aside>
         <label for="recoveryNewPassword">New Password</label>
         <input id="recoveryNewPassword" name="recovery-new-password" type="password" autocomplete="new-password" minlength="8" required />
-        <label for="recoveryConfirmPassword">Confirm Password</label>
+        <div class="password-requirements" data-password-requirements="recoveryNewPassword" aria-live="polite">
+          <span>Password must contain:</span>
+          <ul>
+            <li data-password-rule="length">At least 8 characters</li>
+            <li data-password-rule="uppercase">One uppercase letter</li>
+            <li data-password-rule="lowercase">One lowercase letter</li>
+            <li data-password-rule="digit">One number</li>
+          </ul>
+        </div>
+        <label for="recoveryConfirmPassword">Confirm New Password</label>
         <input id="recoveryConfirmPassword" name="recovery-confirm-password" type="password" autocomplete="new-password" minlength="8" required />
-        <button id="recoveryPasswordSubmitBtn" type="submit">Update Password</button>
+        <button id="recoveryPasswordSubmitBtn" type="submit">Set New Password</button>
         <p id="recoveryPasswordStatus" class="login-status" role="alert" aria-live="polite" hidden></p>
       </form>
       <section id="invalidRecoveryPanel" class="account-setup-heading auth-error-panel" aria-labelledby="invalidRecoveryTitle" hidden>
         <h2 id="invalidRecoveryTitle">Reset Link Unavailable</h2>
-        <p id="invalidRecoveryMessage">This password-reset link is invalid or has expired. Request a new reset link.</p>
+        <p id="invalidRecoveryMessage">This password link is invalid or has expired. Request a new password link.</p>
         <button id="invalidRecoveryRequestBtn" type="button">Request New Reset Link</button>
         <button id="invalidRecoveryBackBtn" class="auth-link-button" type="button">Back to Sign In</button>
       </section>
@@ -202,14 +235,18 @@
         </div>
       </form>
       <form id="changePasswordForm" class="account-form" hidden>
-        <p class="account-form-help">Enter your current password before choosing a new password.</p>
-        <label>Current Password<input id="currentPassword" type="password" autocomplete="current-password" required /></label>
-        <label>New Password<input id="changeNewPassword" type="password" autocomplete="new-password" minlength="8" required /></label>
-        <label>Confirm New Password<input id="changeConfirmPassword" type="password" autocomplete="new-password" minlength="8" required /></label>
+        <p class="account-form-help">A confirmation link will be sent to:</p>
+        <label>Account Email<input id="changePasswordEmail" type="email" readonly /></label>
+        <p class="account-form-help">To protect your account, you must open the link in your email before choosing a new password.</p>
+        <aside class="password-security-notice" aria-label="Password security notice">
+          <strong>Security notice</strong>
+          <span>Do NOT use your KSI Email Password here. Create a different password.</span>
+        </aside>
+        <div id="changePasswordCaptcha" class="captcha-container" aria-label="hCaptcha security verification"></div>
         <p id="changePasswordStatus" class="login-status" role="alert" aria-live="polite" hidden></p>
         <div class="modal-actions account-form-actions">
           <button id="changePasswordCancelBtn" type="button">Back to Profile</button>
-          <button id="changePasswordSubmitBtn" class="export" type="submit">Change Password</button>
+          <button id="changePasswordSubmitBtn" class="export" type="submit" disabled>Send Password Change Link</button>
         </div>
       </form>
     </div>
@@ -219,11 +256,13 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.4"></script>
   <script src="auth-config.js"></script>
   <script src="supabase-client.js"></script>
+  <script src="captcha-service.js"></script>
   <script src="profile-service.js"></script>
   <script src="currency-data.js"></script>
   <script src="country-data.js"></script>
   <script src="logistics-calculator.js"></script>
   <script src="commercial-cost-calculator.js"></script>
+  <script src="overhead-service.js"></script>
   <script src="logistics-service.js"></script>
   <script src="part-master-service.js"></script>
   <script src="supplier-service.js"></script>
@@ -240,12 +279,13 @@
   <script src="admin-price-lists.js"></script>
   <script src="admin-part-master.js"></script>
   <script src="admin-logistics.js"></script>
+  <script src="admin-overhead.js"></script>
   <script src="admin-suppliers.js"></script>
   <script src="data.js"></script>
   <script src="engine.js"></script>
   <script src="xlsx-lite.js"></script>
   <script src="app.js"></script>
   <script src="auth.js"></script>
-  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" defer></script>
+  <script src="https://js.hcaptcha.com/1/api.js?onload=lumaHCaptchaOnload&amp;render=explicit&amp;recaptchacompat=off" async defer onerror="window.lumaHCaptchaScriptError && window.lumaHCaptchaScriptError()"></script>
 </body>
 </html>

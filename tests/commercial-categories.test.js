@@ -27,7 +27,7 @@ test('Part Master fields resolve the intended commercial leaf categories', () =>
   const fixtures = [
     [{Category:'Steel Structure', Part:'Main Post', 'Post Kind':'Main Post'}, 'posts'],
     [{Category:'Steel Structure', Part:'Main Tube A'}, 'substructure'],
-    [{Category:'Steel Structure', Part:'Limit Switch Holder'}, 'limit_switch'],
+    [{Category:'Steel Structure', Part:'Limit Switch Holder'}, 'substructure'],
     [{Category:'Electrical', Part:'SOLTRK 3.0'}, 'soltrk'],
     [{Category:'Bearings', Part:'Bearing'}, 'bearing'],
     [{Category:'Fasteners / Junction Box', Part:'Bolt'}, 'fasteners'],
@@ -35,5 +35,15 @@ test('Part Master fields resolve the intended commercial leaf categories', () =>
   for (const [record, expected] of fixtures) assert.equal(categories.leafKeyForPart(record), expected);
   assert.equal(categories.partMatchesCategory(fixtures[0][0], 'Posts'), true);
   assert.equal(categories.partMatchesCategory(fixtures[0][0], 'Substructure'), false);
+  const substructureParts = [
+    ['k001147', 'Slew Drive Connection'], ['k001119', 'Bearing Adapter'],
+    ['k001162', 'Slew Drive Seat'], ['k001576', 'Square Washer'],
+    ['k001389', 'Limit Switch Holder'], ['k001397', 'Limit Switch Trigger'],
+    ['k001568', 'SOLTRK 3.0 Holder'], ['k001511', 'Junction Box Holder'],
+    ['k001479', 'Tube Spacer'],
+  ];
+  for (const [tag, part] of substructureParts) {
+    assert.equal(categories.partMatchesCategory({TAG:tag, Category:'Steel Structure / Substructure', Part:part}, 'Substructure'), true, tag);
+  }
   assert.equal(categories.partMatchesCategory({category:'Electrical', part:'Cable Gland'}, 'Electrical'), true);
 });

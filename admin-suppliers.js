@@ -164,15 +164,16 @@
   function supplierRowsHtml() {
     const suppliers = filteredSuppliers();
     if (!suppliers.length) {
-      return '<tr><td class="empty-table-message" colspan="7">No suppliers match the current search.</td></tr>';
+      return '<tr><td class="empty-table-message" colspan="8">No suppliers match the current search.</td></tr>';
     }
-    return suppliers.map(supplier => {
+    return suppliers.map((supplier, index) => {
       const selected = supplier.id === state.selectedSupplierId;
       const categories = activeCategories(supplier).map(item => {
         const delivery = Number.isInteger(item.delivery_time_days) ? ` (${item.delivery_time_days} days)` : '';
         return `${item.category}${delivery}`;
       }).join(', ');
       return `<tr class="supplier-row${selected ? ' row-selected' : ''}${supplier.active === false ? ' supplier-inactive-row' : ''}" data-supplier-id="${escapeHtml(supplier.id)}">
+        <td>${index + 1}</td>
         <td class="supplier-select-cell"><input type="radio" name="selectedSupplier" value="${escapeHtml(supplier.id)}" aria-label="Select ${escapeHtml(supplier.supplier_name)}" ${selected ? 'checked' : ''}></td>
         <td><strong>${escapeHtml(supplier.supplier_code)}</strong></td>
         <td>${escapeHtml(supplier.supplier_name)}</td>
@@ -226,7 +227,7 @@
       </div>
       <div class="table-wrap supplier-table-wrap">
         <table class="supplier-table">
-          <thead><tr><th aria-label="Selection"></th><th>Supplier Code</th><th>Supplier Name</th><th>Country</th><th>City</th><th>Categories</th><th>Active</th></tr></thead>
+          <thead><tr><th>No.</th><th aria-label="Selection"></th><th>Supplier Code</th><th>Supplier Name</th><th>Country</th><th>City</th><th>Categories</th><th>Active</th></tr></thead>
           <tbody id="supplierTableBody">${supplierRowsHtml()}</tbody>
         </table>
       </div>`;

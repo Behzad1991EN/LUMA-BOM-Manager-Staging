@@ -1069,8 +1069,11 @@ textarea:focus {
 }
 
 .supplier-table th:first-child,
-.supplier-table td:first-child {
+.supplier-table td:first-child,
+.supplier-table th:nth-child(2),
+.supplier-table td:nth-child(2) {
     width: 42px;
+    min-width: 42px;
     text-align: center;
 }
 
@@ -1367,8 +1370,11 @@ textarea:focus {
 }
 
 .price-list-table th:first-child,
-.price-list-table td:first-child {
+.price-list-table td:first-child,
+.price-list-table th:nth-child(2),
+.price-list-table td:nth-child(2) {
     width: 42px;
+    min-width: 42px;
     text-align: center;
 }
 
@@ -1445,15 +1451,22 @@ textarea:focus {
     min-width: 760px;
 }
 
-.price-list-items-table th:first-child {
+.price-list-items-table th:first-child,
+.price-list-items-table td:first-child {
+    width: 42px;
+    min-width: 42px;
+    text-align: center;
+}
+
+.price-list-items-table th:nth-child(2) {
     width: 120px;
 }
 
-.price-list-items-table th:nth-child(3) {
+.price-list-items-table th:nth-child(4) {
     width: 90px;
 }
 
-.price-list-items-table th:nth-child(4) {
+.price-list-items-table th:nth-child(5) {
     width: 150px;
 }
 

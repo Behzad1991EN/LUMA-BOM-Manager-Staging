@@ -116,10 +116,11 @@
 
   function tableRowsHtml() {
     const rows = filteredPriceLists();
-    if (!rows.length) return '<tr><td class="empty-table-message" colspan="10">No Price Lists match the current filters.</td></tr>';
-    return rows.map(priceList => {
+    if (!rows.length) return '<tr><td class="empty-table-message" colspan="11">No Price Lists match the current filters.</td></tr>';
+    return rows.map((priceList, index) => {
       const selected = priceList.id === state.selectedId;
       return `<tr class="price-list-row${selected ? ' row-selected' : ''}${priceList.active ? '' : ' price-list-inactive-row'}" data-price-list-id="${escapeHtml(priceList.id)}">
+        <td>${index + 1}</td>
         <td><input type="radio" name="selectedPriceList" aria-label="Select ${escapeHtml(priceList.revision)}" ${selected ? 'checked' : ''}></td>
         <td>${escapeHtml(supplierName(priceList))}</td><td>${escapeHtml(priceList.category)}</td><td><strong>${escapeHtml(priceList.revision)}</strong></td>
         <td>${escapeHtml(global.LumaCurrencyData.display(priceList.currency))}</td><td>${escapeHtml(priceList.valid_from || '—')}</td><td>${escapeHtml(priceList.valid_until || '—')}</td>
@@ -170,16 +171,16 @@
     if (!state.root || !isAdmin()) return;
     state.root.innerHTML = `
       <div class="admin-subpage-nav">${backButton('Back to Administration')}</div>
-      <div class="supplier-page-header"><div><h2 class="table-title">Supplier Price Lists</h2><p class="table-subtitle">Manage supplier/category price-list revisions.</p></div><button class="export" type="button" data-price-list-add>Add Price List</button></div>
+      <div class="supplier-page-header"><div><h2 class="table-title">Supplier Price Lists</h2><p class="table-subtitle">Manage supplier/category price-list documents.</p></div><button class="export" type="button" data-price-list-add>Add Price List</button></div>
       ${state.notice ? `<p class="supplier-notice ${escapeHtml(state.notice.kind)}" role="status">${escapeHtml(state.notice.message)}</p>` : ''}
       <div class="price-list-filters">
         <label><span>Supplier</span><select data-price-list-supplier-filter><option value="">All Suppliers</option>${state.suppliers.map(supplier => `<option value="${escapeHtml(supplier.id)}" ${supplier.id === state.supplierFilter ? 'selected' : ''}>${escapeHtml(`${supplier.supplier_code} — ${supplier.supplier_name}`)}</option>`).join('')}</select></label>
         <label><span>Category</span><select data-price-list-category-filter></select></label>
         <label><span>Status</span><select data-price-list-active-filter><option value="all">All</option><option value="active" ${state.activeFilter === 'active' ? 'selected' : ''}>Active</option><option value="inactive" ${state.activeFilter === 'inactive' ? 'selected' : ''}>Inactive</option></select></label>
-        <label><span>Search</span><input type="search" data-price-list-search value="${escapeHtml(state.search)}" placeholder="Supplier, category, revision"></label>
+        <label><span>Search</span><input type="search" data-price-list-search value="${escapeHtml(state.search)}" placeholder="Supplier, category, document no."></label>
       </div>
       <div class="supplier-selection-actions price-list-actions"><button type="button" data-price-list-edit disabled>Edit Price List</button><button type="button" data-price-list-duplicate disabled>Duplicate Price List</button><button class="danger" type="button" data-price-list-archive disabled>Archive Price List</button></div>
-      <div class="table-wrap price-list-table-wrap"><table class="price-list-table"><thead><tr><th aria-label="Selection"></th><th>Supplier</th><th>Category</th><th>Revision</th><th>Currency</th><th>Valid From</th><th>Valid Until</th><th>Active</th><th>Items</th><th>Updated</th></tr></thead><tbody id="priceListTableBody">${tableRowsHtml()}</tbody></table></div>`;
+      <div class="table-wrap price-list-table-wrap"><table class="price-list-table"><thead><tr><th>No.</th><th aria-label="Selection"></th><th>Supplier</th><th>Category</th><th>Document No. (Invoice No.)</th><th>Currency</th><th>Valid From</th><th>Valid Until</th><th>Active</th><th>Items</th><th>Updated</th></tr></thead><tbody id="priceListTableBody">${tableRowsHtml()}</tbody></table></div>`;
 
     renderCategoryFilter();
     state.root.querySelector('[data-price-list-back]').addEventListener('click', () => state.onBack?.());
@@ -226,8 +227,8 @@
   }
 
   function itemRowsHtml() {
-    if (!state.editorItems.length) return '<tr><td class="empty-table-message" colspan="5">No items added. Select a TAG from Part Master.</td></tr>';
-    return state.editorItems.map((item, index) => `<tr data-price-item-row="${index}"><td><strong>${escapeHtml(item.tag)}</strong></td><td>${escapeHtml(item.description || '—')}</td><td>${escapeHtml(item.unit || '—')}</td><td><input type="text" inputmode="decimal" data-price-item-value="${index}" value="${escapeHtml(item.unit_price ?? '')}" placeholder="Missing"></td><td><button class="danger" type="button" data-price-item-remove="${index}" aria-label="Remove ${escapeHtml(item.tag)}">Remove</button></td></tr>`).join('');
+    if (!state.editorItems.length) return '<tr><td class="empty-table-message" colspan="6">No items added. Select a TAG from Part Master.</td></tr>';
+    return state.editorItems.map((item, index) => `<tr data-price-item-row="${index}"><td>${index + 1}</td><td><strong>${escapeHtml(item.tag)}</strong></td><td>${escapeHtml(item.description || '—')}</td><td>${escapeHtml(item.unit || '—')}</td><td><input type="text" inputmode="decimal" data-price-item-value="${index}" value="${escapeHtml(item.unit_price ?? '')}" placeholder="Missing"></td><td><button class="danger" type="button" data-price-item-remove="${index}" aria-label="Remove ${escapeHtml(item.tag)}">Remove</button></td></tr>`).join('');
   }
 
   function renderItemsTable() {
@@ -289,23 +290,23 @@
     const title = editing ? 'Edit Price List' : duplicate ? 'Duplicate Price List' : 'Add Price List';
     state.root.innerHTML = `
       <div class="admin-subpage-nav">${backButton('Back to Price Lists')}</div>
-      <div class="supplier-form-header"><h2 class="table-title">${title}</h2><p class="table-subtitle">${editing ? 'Revision identity is locked. Duplicate it for significant commercial changes.' : duplicate ? `Create a new revision from ${escapeHtml(source.revision)}.` : 'Create an independent supplier/category revision.'}</p></div>
+      <div class="supplier-form-header"><h2 class="table-title">${title}</h2><p class="table-subtitle">${editing ? 'Update the saved document details and item prices.' : duplicate ? `Create a new price list from Document No. ${escapeHtml(source.revision)}.` : 'Create an independent supplier/category price-list document.'}</p></div>
       <form id="priceListForm" class="supplier-form price-list-form" novalidate>
         <div class="supplier-form-grid">
           <label class="supplier-form-field"><span>Supplier</span><select name="supplier_id" required ${editing ? 'disabled' : ''}><option value="">Select Supplier</option>${supplierOptions(supplierId)}</select></label>
           <label class="supplier-form-field"><span>Category</span><select name="category" required ${editing ? 'disabled' : ''}>${categoryOptions(supplierId, category)}</select></label>
-          <label class="supplier-form-field"><span>Revision</span><input name="revision" required value="${escapeHtml(duplicate ? '' : source?.revision || '')}" ${editing ? 'readonly' : ''} placeholder="2026-R01"></label>
-          <label class="supplier-form-field"><span>Currency</span><select name="currency" required ${editing ? 'disabled' : ''}>${global.LumaCurrencyData.OPTIONS.map(currency => `<option value="${currency.code}" ${currency.code === (source?.currency || 'EUR') ? 'selected' : ''}>${escapeHtml(global.LumaCurrencyData.optionLabel(currency.code))}</option>`).join('')}</select></label>
+          <label class="supplier-form-field"><span>Document No. (Invoice No.)</span><input name="revision" required value="${escapeHtml(duplicate ? '' : source?.revision || '')}" placeholder="INV-2026-001"></label>
+          <label class="supplier-form-field"><span>Currency</span><select name="currency" required>${global.LumaCurrencyData.OPTIONS.map(currency => `<option value="${currency.code}" ${currency.code === (source?.currency || 'EUR') ? 'selected' : ''}>${escapeHtml(global.LumaCurrencyData.optionLabel(currency.code))}</option>`).join('')}</select></label>
           <label class="supplier-form-field"><span>Valid From</span><input name="valid_from" type="date" value="${escapeHtml(source?.valid_from || '')}"></label>
           <label class="supplier-form-field"><span>Valid Until</span><input name="valid_until" type="date" value="${escapeHtml(source?.valid_until || '')}"></label>
           <label class="supplier-form-field supplier-form-wide"><span>Notes</span><textarea name="notes" rows="3">${escapeHtml(source?.notes || '')}</textarea></label>
           <label class="supplier-active-check supplier-form-wide"><input name="active" type="checkbox" ${editing ? (source?.active ? 'checked' : '') : ''}><span>Active Price List</span></label>
         </div>
         <section class="price-list-items-editor"><div class="price-list-items-header"><div><h3>Price List Items</h3><p>TAG, description, and unit come from the current Part Master. Blank Unit Price means missing; zero is preserved as zero.</p></div><div class="price-item-picker"><select data-price-item-picker></select><button type="button" data-price-item-add>Add Item</button></div></div>
-          <div class="table-wrap"><table class="price-list-items-table"><thead><tr><th>TAG</th><th>Description</th><th>Unit</th><th>Unit Price</th><th></th></tr></thead><tbody id="priceListItemsBody">${itemRowsHtml()}</tbody></table></div>
+          <div class="table-wrap"><table class="price-list-items-table"><thead><tr><th>No.</th><th>TAG</th><th>Description</th><th>Unit</th><th>Unit Price</th><th></th></tr></thead><tbody id="priceListItemsBody">${itemRowsHtml()}</tbody></table></div>
         </section>
         <p id="priceListFormStatus" class="supplier-form-status" role="alert" aria-live="polite" hidden></p>
-        <div class="supplier-form-actions"><button type="button" data-price-list-cancel>Cancel</button><button class="export" type="submit" data-price-list-save>${editing ? 'Save Changes' : duplicate ? 'Create Revision' : 'Create Price List'}</button></div>
+        <div class="supplier-form-actions"><button type="button" data-price-list-cancel>Cancel</button><button class="export" type="submit" data-price-list-save>${editing ? 'Save Changes' : 'Create Price List'}</button></div>
       </form>`;
 
     const form = state.root.querySelector('#priceListForm');
@@ -323,6 +324,18 @@
       confirmCategoryChange(form, previousSupplierId, previousCategory);
     });
     form.elements.category.addEventListener('change', () => confirmCategoryChange(form, form.dataset.previousSupplierId || '', form.dataset.previousCategory || ''));
+    const syncDateValidity = () => {
+      const validFrom = form.elements.valid_from;
+      const validUntil = form.elements.valid_until;
+      validUntil.min = validFrom.value || '';
+      const invalid = !!(validFrom.value && validUntil.value && validUntil.value < validFrom.value);
+      validUntil.setCustomValidity(invalid ? 'Valid Until cannot be before Valid From.' : '');
+      setFormStatus(invalid ? 'Valid Until cannot be before Valid From.' : '');
+    };
+    form.elements.valid_from.addEventListener('change', syncDateValidity);
+    form.elements.valid_until.addEventListener('change', syncDateValidity);
+    form.elements.valid_until.addEventListener('input', syncDateValidity);
+    syncDateValidity();
     form.addEventListener('submit', event => saveForm(event, editing ? source : null));
     (duplicate ? form.elements.revision : form.elements.supplier_id).focus();
   }
@@ -336,7 +349,7 @@
 
   function setFormBusy(form, busy, editing) {
     [...form.elements].forEach(element => {
-      if (editing && ['supplier_id', 'category', 'currency'].includes(element.name)) return;
+      if (editing && ['supplier_id', 'category'].includes(element.name)) return;
       element.disabled = busy;
     });
     const save = form.querySelector('[data-price-list-save]');
@@ -357,10 +370,10 @@
     if (!header.supplier_id) throw new Error('Supplier is required.');
     if (!header.category) throw new Error('Category is required.');
     if (!supplierCategories(header.supplier_id).includes(header.category)) throw new Error('This supplier is not configured for the selected category.');
-    if (!header.revision) throw new Error('Revision is required.');
+    if (!header.revision) throw new Error('Document No. (Invoice No.) is required.');
     if (!global.LumaPriceListService.CURRENCIES.includes(header.currency)) throw new Error('Select a valid currency.');
     if (header.valid_from && header.valid_until && header.valid_until < header.valid_from) throw new Error('Valid Until cannot be before Valid From.');
-    if (!editingSource && state.priceLists.some(item => item.supplier_id === header.supplier_id && item.category === header.category && item.revision.toLowerCase() === header.revision.toLowerCase())) throw new Error('A Price List with this supplier, category, and revision already exists.');
+    if (state.priceLists.some(item => item.id !== editingSource?.id && item.supplier_id === header.supplier_id && item.category === header.category && item.revision.toLowerCase() === header.revision.toLowerCase())) throw new Error('A Price List with this supplier, category, and Document No. already exists.');
 
     const tags = new Set();
     const items = state.editorItems.map(item => {
@@ -397,7 +410,7 @@
     }
     if (!isAdmin()) return;
     state.selectedId = id;
-    state.notice = {kind: 'success', message: editingSource ? 'Price List updated.' : 'Price List revision created.'};
+    state.notice = {kind: 'success', message: editingSource ? 'Price List updated.' : 'Price List created.'};
     renderLoading('Refreshing Price Lists...');
     try { if (await loadMaster()) renderList(); }
     catch (error) { renderLoadError(error.message); }
@@ -406,7 +419,7 @@
   async function archiveSelected() {
     const priceList = selectedPriceList();
     if (!priceList || !priceList.active || !isAdmin()) return;
-    if (!confirm(`Archive Price List ${priceList.revision} for ${supplierName(priceList)}?\n\nThe revision and all item prices will remain stored.`)) return;
+    if (!confirm(`Archive Price List ${priceList.revision} for ${supplierName(priceList)}?\n\nThe document and all item prices will remain stored.`)) return;
     renderLoading('Archiving Price List...');
     try {
       await global.LumaPriceListService.archivePriceList(priceList.id);

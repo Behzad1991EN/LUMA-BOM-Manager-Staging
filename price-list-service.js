@@ -29,7 +29,7 @@
     reportFailure(operation, error);
     const message = String(error?.message || '');
     if (error?.code === '23505' && message.includes('price_lists_supplier_category_revision_unique')) {
-      return new PriceListServiceError('duplicate_revision', 'A Price List with this supplier, category, and revision already exists.');
+      return new PriceListServiceError('duplicate_revision', 'A Price List with this supplier, category, and Document No. already exists.');
     }
     if (error?.code === '23505' && message.includes('price_list_items_price_list_tag_unique')) {
       return new PriceListServiceError('duplicate_tag', 'The same TAG cannot appear twice in one Price List.');

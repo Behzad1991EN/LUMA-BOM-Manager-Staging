@@ -12,6 +12,7 @@ const APP_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8')
 const UI_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'admin-price-lists.js'), 'utf8');
 const ADMIN_HOME_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'admin-suppliers.js'), 'utf8');
 const MIGRATION_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'supabase', 'migrations', '20260827000300_create_price_lists.sql'), 'utf8');
+const EDITABLE_DOCUMENT_MIGRATION_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'supabase', 'migrations', '20260901001600_editable_price_list_documents.sql'), 'utf8');
 
 function loadService({admin = true, client}) {
   const window = {
@@ -162,4 +163,16 @@ test('Administration exposes active Price Lists navigation and focused revision 
   assert.match(UI_SOURCE, /Changing Category to/);
   assert.match(UI_SOURCE, /incompatible item\(s\) removed/);
   assert.match(UI_SOURCE, /Blank Unit Price means missing; zero is preserved as zero/);
+  assert.match(UI_SOURCE, /Document No\. \(Invoice No\.\)/);
+  assert.match(UI_SOURCE, /<th>No\.<\/th><th aria-label="Selection">/);
+  assert.match(UI_SOURCE, /Valid Until cannot be before Valid From/);
+  assert.doesNotMatch(UI_SOURCE, /name="currency" required disabled/);
+});
+
+test('follow-up migration makes Document No. and currency editable after save', () => {
+  assert.match(EDITABLE_DOCUMENT_MIGRATION_SOURCE, /revision = v_revision/);
+  assert.match(EDITABLE_DOCUMENT_MIGRATION_SOURCE, /currency = v_currency/);
+  assert.doesNotMatch(EDITABLE_DOCUMENT_MIGRATION_SOURCE, /new\.revision := old\.revision/);
+  assert.doesNotMatch(EDITABLE_DOCUMENT_MIGRATION_SOURCE, /new\.currency := old\.currency/);
+  assert.match(EDITABLE_DOCUMENT_MIGRATION_SOURCE, /Steel Structure \/ Substructure/);
 });

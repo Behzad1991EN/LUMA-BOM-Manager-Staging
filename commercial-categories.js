@@ -48,13 +48,16 @@
 
     if (category.startsWith('fastener')) return 'fasteners';
     if (postKind || identity.includes('mainpost') || identity.includes('bearingpost') || identity.includes('drivepile') || identity.includes('lateralpile')) return 'posts';
+    // Steel Structure is the authoritative Part Master category. Everything in
+    // it except configured Posts belongs to the commercial Substructure list,
+    // including holders, adapters, seats, triggers, and connection pieces.
+    if (category.includes('steelstructure')) return 'substructure';
     if (category.startsWith('pvmodule') || identity === 'pvmodule') return 'pv_module';
     if (identity.includes('limitswitch')) return 'limit_switch';
     if (identity.includes('soltrk')) return 'soltrk';
     if (identity.includes('junctionbox') || identity.includes('jbox')) return 'junction_box';
     if (category.includes('bearing') || identity.startsWith('bearing')) return 'bearing';
     if (category.includes('slewdrive') || identity.includes('slewdrive')) return 'slew_drive';
-    if (category.includes('steelstructure')) return 'substructure';
     return normalizeCategoryKey(category);
   }
 

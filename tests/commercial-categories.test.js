@@ -14,12 +14,13 @@ function loadCategories() {
   return window.LumaCommercialCategories;
 }
 
-test('legacy category names normalize centrally without a TAG mapping', () => {
+test('legacy category names normalize centrally with only approved migration-compatibility TAG overrides', () => {
   const categories = loadCategories();
   assert.equal(categories.normalizeCategoryKey('Steel Structure'), 'substructure');
   assert.equal(categories.normalizeCategoryKey('Bearings'), 'bearing');
   assert.equal(categories.normalizeCategoryKey('Fasteners / Limit Switch'), 'fasteners');
-  assert.doesNotMatch(source, /k\d{6}/i);
+  assert.match(source, /k001479: 'substructure'/);
+  assert.match(source, /k001576: 'substructure'/);
 });
 
 test('Part Master fields resolve the intended commercial leaf categories', () => {
@@ -43,7 +44,9 @@ test('Part Master fields resolve the intended commercial leaf categories', () =>
     ['k001479', 'Tube Spacer'],
   ];
   for (const [tag, part] of substructureParts) {
-    assert.equal(categories.partMatchesCategory({TAG:tag, Category:'Steel Structure / Substructure', Part:part}, 'Substructure'), true, tag);
+    const description = tag === 'k001119' ? 'Luma lateral pile head' : '';
+    const category = ['k001479', 'k001576'].includes(tag) ? 'Fasteners / Legacy' : 'Steel Structure';
+    assert.equal(categories.partMatchesCategory({TAG:tag, Category:category, Part:part, Description:description}, 'Substructure'), true, tag);
   }
   assert.equal(categories.partMatchesCategory({category:'Electrical', part:'Cable Gland'}, 'Electrical'), true);
 });

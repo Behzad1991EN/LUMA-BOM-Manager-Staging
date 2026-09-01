@@ -111,6 +111,7 @@ test('Part Master service caches one database load and resolves exact active pos
     {id:'1',part:'Main Post',tag:'k001152',description:'Main',category:'Steel Structure',active:true,post_kind:'Main Post',foundation_method:'Ramming',foundation_depth_mm:2000,profile_type:'HEA 140'},
     {id:'2',part:'Bearing Post',tag:'k001120',description:'Bearing',category:'Steel Structure',active:true,post_kind:'Bearing Post',foundation_method:'Ramming',foundation_depth_mm:2000,profile_type:'C'},
     {id:'3',part:'Old',tag:'old',description:'Old',category:'Steel Structure',active:false},
+    {id:'4',part:'Tube Spacer',tag:'k001479',description:'Spacer',category:'Fastener / Main Beam',active:true},
   ];
   let requests = 0;
   const query = {select(){requests += 1; return this;}, order(){return this;}, then(resolve){resolve({data:rows,error:null});}};
@@ -119,9 +120,10 @@ test('Part Master service caches one database load and resolves exact active pos
   await window.LumaPartMasterService.loadPartMaster();
   await window.LumaPartMasterService.loadPartMaster();
   assert.equal(requests, 1);
-  assert.equal(window.LumaPartMasterService.getAllParts().length, 3);
-  assert.equal(window.LumaPartMasterService.getActiveParts().length, 2);
+  assert.equal(window.LumaPartMasterService.getAllParts().length, 4);
+  assert.equal(window.LumaPartMasterService.getActiveParts().length, 3);
   assert.equal(window.LumaPartMasterService.getPartByTag('K001152').Part, 'Main Post');
+  assert.equal(window.LumaPartMasterService.getPartByTag('K001479').Category, 'Steel Structure / Substructure');
   const match = window.LumaPartMasterService.findPostConfiguration({postKind:'Main Post',foundationMethod:'Ramming',foundationDepthMm:2000,profileType:'HEA 140'});
   assert.equal(match.status, 'found');
   assert.equal(match.part.TAG, 'k001152');

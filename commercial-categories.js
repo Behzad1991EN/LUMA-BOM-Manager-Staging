@@ -30,6 +30,12 @@
     fasteners: 'fasteners',
     electrical: 'electrical',
   });
+  // Compatibility while the category-correction migration is pending in an
+  // environment. The same values are stored authoritatively by the migration.
+  const CATEGORY_OVERRIDES_BY_TAG = Object.freeze({
+    k001479: 'substructure',
+    k001576: 'substructure',
+  });
 
   function normalizeCategoryKey(value) {
     const normalized = normalizeText(value);
@@ -44,10 +50,12 @@
   function leafKeyForPart(record) {
     const category = normalizeText(recordValue(record, 'Category', 'category'));
     const postKind = normalizeText(recordValue(record, 'Post Kind', 'postKind'));
+    const tag = String(recordValue(record, 'TAG', 'tag')).trim().toLowerCase();
     const identity = normalizeText(`${recordValue(record, 'Part Name', 'part')} ${recordValue(record, 'Part', 'part')} ${recordValue(record, 'Description', 'description')}`);
 
+    if (CATEGORY_OVERRIDES_BY_TAG[tag]) return CATEGORY_OVERRIDES_BY_TAG[tag];
     if (category.startsWith('fastener')) return 'fasteners';
-    if (postKind || identity.includes('mainpost') || identity.includes('bearingpost') || identity.includes('drivepile') || identity.includes('lateralpile')) return 'posts';
+    if (postKind || identity.includes('mainpost') || identity.includes('bearingpost')) return 'posts';
     // Steel Structure is the authoritative Part Master category. Everything in
     // it except configured Posts belongs to the commercial Substructure list,
     // including holders, adapters, seats, triggers, and connection pieces.

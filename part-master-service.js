@@ -10,6 +10,11 @@
     .replace(/Main\s+Beam/gi, 'Main Tube')
     .replace(/13\s*[x×]\s*43/gi, '13 × 43');
   const normalized = value => text(value).toLowerCase().replace(/\s+/g, ' ');
+  const categoryOverridesByTag = Object.freeze({
+    k001479:'Steel Structure / Substructure',
+    k001576:'Steel Structure / Substructure',
+  });
+  const normalizedCategory = row => categoryOverridesByTag[text(row?.tag).toLowerCase()] || normalizedMasterText(row?.category);
 
   function publicMessage(error) {
     console.error('Part Master database operation failed.', {code:error?.code || 'unknown'});
@@ -24,7 +29,7 @@
 
   const toAppRecord = row => Object.freeze({
     id:row.id, Part:normalizedMasterText(row.part), TAG:row.tag || '', Description:normalizedMasterText(row.description),
-    'Part Number':row.part_number || '', Category:normalizedMasterText(row.category), Unit:row.unit || '',
+    'Part Number':row.part_number || '', Category:normalizedCategory(row), Unit:row.unit || '',
     Material:normalizedMasterText(row.material), Weight:row.weight ?? '',
     'Calculation Note':normalizedMasterText(row.calculation_note), Active:row.active !== false,
     'Post Kind':row.post_kind || '', 'Foundation Method':row.foundation_method || '',

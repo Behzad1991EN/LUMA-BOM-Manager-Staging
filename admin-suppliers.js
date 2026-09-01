@@ -80,7 +80,7 @@
         </button>
         <button class="administration-card" type="button" data-admin-page="overhead">
           <span class="administration-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19h16M7 16V8m5 8V5m5 11v-6M5 5l3-3 3 3"/></svg></span>
-          <span><strong>Overhead</strong><small>Configure KSI overhead constants and commercial overhead parameters.</small></span>
+          <span><strong>Overhead</strong><small>Manage yearly Overhead costs, validity, and annual project capacity.</small></span>
           <em aria-hidden="true">&rsaquo;</em>
         </button>
         <button class="administration-card" type="button" data-admin-page="personnel">

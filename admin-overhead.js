@@ -1,81 +1,22 @@
 'use strict';
 
 (function initializeOverheadAdministration(global) {
-  const state = {root: null, back: null};
-  const esc = value => String(value ?? '').replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
-  const isAdmin = () => global.LumaAuth?.isAdmin?.() === true;
-  const formatNumber = (value, digits = 2) => Number(value).toLocaleString(undefined, {minimumFractionDigits: digits, maximumFractionDigits: digits});
-  const backButton = () => '<button class="admin-back-button" type="button" data-overhead-back aria-label="Back to Administration" title="Back to Administration"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button>';
-
-  function reset() { state.root = null; state.back = null; }
-
-  function shell(content) {
-    if (!state.root || !isAdmin()) return;
-    state.root.innerHTML = `<div class="admin-subpage-nav">${backButton()}</div>${content}`;
-    state.root.querySelector('[data-overhead-back]').onclick = state.back;
+  const state={root:null,back:null};
+  const esc=value=>String(value??'').replace(/[&<>"']/g,character=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
+  const isAdmin=()=>global.LumaAuth?.isAdmin?.()===true;
+  const money=value=>`€ ${Number(value).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+  const backButton=()=>'<button class="admin-back-button" type="button" data-overhead-back aria-label="Back to Administration" title="Back to Administration"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button>';
+  function reset(){state.root=null;state.back=null;}
+  function shell(content){if(!state.root||!isAdmin())return;state.root.innerHTML=`<div class="admin-subpage-nav">${backButton()}</div>${content}`;state.root.querySelector('[data-overhead-back]').onclick=state.back;}
+  function rowsHtml(settings){return settings.items.map((item,index)=>`<tr><td>${index+1}</td><td>${esc(item.code)}</td><td>${esc(item.description)}</td><td><span class="personnel-money-input"><span>€</span><input name="overhead_${index}" type="number" min="0" step="0.01" required value="${esc(item.yearly_cost_eur)}"></span></td><td><output data-overhead-monthly="${index}">${money(item.yearly_cost_eur/12)}</output></td></tr>`).join('');}
+  function render(settings,notice=''){
+    shell(`<div class="supplier-page-header"><div><h2 class="table-title">Overhead</h2><p class="table-subtitle">Maintain yearly Overhead costs. Monthly values are calculated automatically as Yearly Cost ÷ 12.</p></div></div>${notice?`<p class="supplier-notice success" role="status">${esc(notice)}</p>`:''}<form id="overheadSettingsForm" class="supplier-form overhead-settings-form" novalidate><div class="supplier-form-grid overhead-period-grid"><label class="supplier-form-field"><span>Valid From</span><input name="valid_from" type="date" value="${esc(settings.valid_from)}"></label><label class="supplier-form-field"><span>Valid Till</span><input name="valid_until" type="date" min="${esc(settings.valid_from)}" value="${esc(settings.valid_until)}"></label><label class="supplier-form-field"><span>KSI Project Capacity per Year</span><span class="overhead-input-with-unit"><input name="ksi_annual_project_capacity_mwp" type="number" min="0.000001" step="any" required value="${esc(settings.ksi_annual_project_capacity_mwp)}"><em>MWp / Year</em></span></label></div><div class="table-wrap overhead-table-wrap"><table class="overhead-cost-table"><thead><tr><th>No.</th><th>Code</th><th>Overhead Item</th><th>Yearly Cost</th><th>Monthly Cost (÷ 12)</th></tr></thead><tbody>${rowsHtml(settings)}</tbody><tfoot><tr><th colspan="3">OVERHEAD COST</th><th data-overhead-yearly-total></th><th data-overhead-monthly-total></th></tr></tfoot></table></div><p class="supplier-form-status" data-overhead-status hidden></p><div class="supplier-form-actions"><button type="button" data-overhead-cancel>Cancel</button><button class="export" type="submit">Save Overhead Costs</button></div></form>`);
+    const form=state.root.querySelector('#overheadSettingsForm'),status=form.querySelector('[data-overhead-status]'),validFrom=form.elements.valid_from,validUntil=form.elements.valid_until;
+    function sync(){let yearlyTotal=0,valid=true;settings.items.forEach((item,index)=>{const value=Number(form.elements[`overhead_${index}`].value);if(!Number.isFinite(value)||value<0){valid=false;form.querySelector(`[data-overhead-monthly="${index}"]`).textContent='—';return;}yearlyTotal+=value;form.querySelector(`[data-overhead-monthly="${index}"]`).textContent=money(value/12);});form.querySelector('[data-overhead-yearly-total]').textContent=valid?money(yearlyTotal):'—';form.querySelector('[data-overhead-monthly-total]').textContent=valid?money(yearlyTotal/12):'—';validUntil.min=validFrom.value;}
+    form.addEventListener('input',sync);sync();state.root.querySelector('[data-overhead-cancel]').onclick=state.back;
+    form.onsubmit=async event=>{event.preventDefault();status.hidden=true;if(validFrom.value&&validUntil.value&&validUntil.value<validFrom.value){status.textContent='Valid Till cannot be before Valid From.';status.hidden=false;validUntil.focus();return;}const capacityRaw=form.elements.ksi_annual_project_capacity_mwp.value.trim(),capacity=Number(capacityRaw);if(!capacityRaw||!Number.isFinite(capacity)||capacity<=0){status.textContent='KSI Project Capacity per Year is required and must be greater than zero.';status.hidden=false;return;}const items=settings.items.map((item,index)=>({...item,yearly_cost_eur:Number(form.elements[`overhead_${index}`].value)}));const invalidIndex=items.findIndex(item=>!Number.isFinite(item.yearly_cost_eur)||item.yearly_cost_eur<0);if(invalidIndex>=0){status.textContent=`${items[invalidIndex].description} yearly cost is required and must be zero or greater.`;status.hidden=false;return;}const controls=[...form.querySelectorAll('button,input')];controls.forEach(control=>control.disabled=true);try{render(await global.LumaOverheadService.saveSettings({currency:'EUR',items,valid_from:validFrom.value,valid_until:validUntil.value,ksi_annual_project_capacity_mwp:capacity}),'Overhead costs saved.');}catch(error){controls.forEach(control=>control.disabled=false);status.textContent=error.message;status.hidden=false;}};
   }
-
-  function renderLoading() {
-    shell('<div class="supplier-loading" role="status">Loading Overhead settings...</div>');
-  }
-
-  function coefficientText(overhead, capacity) {
-    const annualOverhead = Number(overhead), annualCapacity = Number(capacity);
-    if (!Number.isFinite(annualOverhead) || annualOverhead < 0 || !Number.isFinite(annualCapacity) || annualCapacity <= 0) return 'Configuration required';
-    return `€${formatNumber(annualOverhead / annualCapacity)} / MWp`;
-  }
-
-  function renderForm(settings, notice = '') {
-    if (!state.root || !isAdmin()) return;
-    shell(`<div class="supplier-page-header"><div><h2 class="table-title">Overhead</h2><p class="table-subtitle">Configure KSI overhead constants and commercial overhead parameters.</p></div></div>
-      ${notice ? `<p class="supplier-notice success" role="status">${esc(notice)}</p>` : ''}
-      <form id="overheadSettingsForm" class="supplier-form overhead-settings-form" novalidate>
-        <div class="supplier-form-grid">
-          <label class="supplier-form-field"><span>KSI Annual Overhead</span><span class="overhead-input-with-unit"><span>€</span><input name="ksi_annual_overhead_eur" type="number" min="0" step="any" required value="${esc(settings.ksi_annual_overhead_eur)}"><em>/ Year</em></span></label>
-          <label class="supplier-form-field"><span>KSI Project Capacity per Year</span><span class="overhead-input-with-unit"><input name="ksi_annual_project_capacity_mwp" type="number" min="0.000001" step="any" required value="${esc(settings.ksi_annual_project_capacity_mwp)}"><em>MWp / Year</em></span></label>
-          <div class="supplier-form-field overhead-coefficient-preview"><span>Coefficient A</span><output data-overhead-coefficient>${esc(coefficientText(settings.ksi_annual_overhead_eur, settings.ksi_annual_project_capacity_mwp))}</output><small>Derived automatically: Annual Overhead ÷ Annual Project Capacity</small></div>
-        </div>
-        <p class="supplier-form-status" data-overhead-status hidden></p>
-        <div class="supplier-form-actions"><button type="button" data-overhead-cancel>Cancel</button><button class="export" type="submit">Save Overhead Settings</button></div>
-      </form>`);
-    const form = state.root.querySelector('#overheadSettingsForm');
-    const status = form.querySelector('[data-overhead-status]');
-    const syncCoefficient = () => {form.querySelector('[data-overhead-coefficient]').textContent = coefficientText(form.elements.ksi_annual_overhead_eur.value, form.elements.ksi_annual_project_capacity_mwp.value);};
-    form.elements.ksi_annual_overhead_eur.addEventListener('input', syncCoefficient);
-    form.elements.ksi_annual_project_capacity_mwp.addEventListener('input', syncCoefficient);
-    state.root.querySelector('[data-overhead-cancel]').onclick = state.back;
-    form.onsubmit = async event => {
-      event.preventDefault();
-      status.hidden = true;
-      const overheadRaw = form.elements.ksi_annual_overhead_eur.value.trim();
-      const capacityRaw = form.elements.ksi_annual_project_capacity_mwp.value.trim();
-      const annualOverhead = Number(overheadRaw), annualCapacity = Number(capacityRaw);
-      if (!overheadRaw || !Number.isFinite(annualOverhead) || annualOverhead < 0) {status.textContent = 'KSI Annual Overhead is required and must be zero or greater.'; status.hidden = false; return;}
-      if (!capacityRaw || !Number.isFinite(annualCapacity) || annualCapacity <= 0) {status.textContent = 'KSI Project Capacity per Year is required and must be greater than zero.'; status.hidden = false; return;}
-      const controls = [...form.querySelectorAll('button,input')]; controls.forEach(control => control.disabled = true);
-      try {
-        const saved = await global.LumaOverheadService.saveSettings({ksi_annual_overhead_eur: annualOverhead, ksi_annual_project_capacity_mwp: annualCapacity});
-        renderForm(saved, 'Overhead settings saved.');
-      } catch (error) {
-        controls.forEach(control => control.disabled = false);
-        status.textContent = error.message;
-        status.hidden = false;
-      }
-    };
-  }
-
-  async function load() {
-    renderLoading();
-    try { renderForm(await global.LumaOverheadService.loadSettings({force: true})); }
-    catch (error) { shell(`<div class="supplier-error" role="alert"><strong>Overhead settings could not be loaded.</strong><span>${esc(error.message)}</span><button type="button" data-overhead-retry>Try Again</button></div>`); state.root.querySelector('[data-overhead-retry]').onclick = load; }
-  }
-
-  function open(root, back) {
-    if (!isAdmin()) return;
-    state.root = root;
-    state.back = back;
-    void load();
-  }
-
-  global.LumaAdminOverhead = Object.freeze({open, reset});
+  async function load(){shell('<div class="supplier-loading" role="status">Loading Overhead costs...</div>');try{render(await global.LumaOverheadService.loadSettings({force:true}));}catch(error){shell(`<div class="supplier-error" role="alert"><strong>Overhead costs could not be loaded.</strong><span>${esc(error.message)}</span><button type="button" data-overhead-retry>Try Again</button></div>`);state.root.querySelector('[data-overhead-retry]').onclick=load;}}
+  function open(root,back){if(!isAdmin())return;state.root=root;state.back=back;void load();}
+  global.LumaAdminOverhead=Object.freeze({open,reset});
 })(window);

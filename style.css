@@ -2503,7 +2503,58 @@ th.wrap {
 }
 
 .overhead-settings-form {
-    max-width: 980px;
+    max-width: 1180px;
+}
+
+.overhead-period-grid {
+    grid-template-columns: repeat(3, minmax(220px, 1fr));
+    margin-bottom: 18px;
+}
+
+.overhead-table-wrap {
+    width: 100%;
+    max-height: 620px;
+}
+
+.overhead-cost-table {
+    min-width: 900px;
+}
+
+.overhead-cost-table th:first-child,
+.overhead-cost-table td:first-child {
+    width: 48px;
+    text-align: center;
+}
+
+.overhead-cost-table th:nth-child(2),
+.overhead-cost-table td:nth-child(2) {
+    width: 90px;
+    white-space: nowrap;
+}
+
+.overhead-cost-table th:nth-child(4),
+.overhead-cost-table th:nth-child(5),
+.overhead-cost-table td:nth-child(4),
+.overhead-cost-table td:nth-child(5) {
+    width: 190px;
+}
+
+.overhead-cost-table tfoot th {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    border-top: 2px solid var(--accent);
+    background: #fff0d8;
+    color: var(--accent-dark);
+}
+
+.overhead-cost-table tfoot th:first-child {
+    text-align: left;
+}
+
+.overhead-detail-heading {
+    margin-top: 24px;
+    margin-bottom: 10px;
 }
 
 .personnel-table-wrap {

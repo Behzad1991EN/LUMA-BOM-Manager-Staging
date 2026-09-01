@@ -1067,8 +1067,12 @@ function ensurePersonnelSettings(){
 }
 function commercialAnalysisRows(page){return (current?.bom?.rows||[]).filter(row=>analysisCategoryMatches(page,row));}
 function buildSupplierCostData(page){
-  const p=getActiveProject(),supplierId=p?.analysis_supplier_selections?.[page]||'';
-  return window.LumaCommercialAnalysis.buildSection(page,supplierId,commercialAnalysisRows(page));
+  const p=getActiveProject(),supplierId=p?.analysis_supplier_selections?.[page]||'',rows=commercialAnalysisRows(page);
+  let data=window.LumaCommercialAnalysis.buildSection(page,supplierId,rows);
+  // If this section has exactly one eligible supplier/active Price List, use it
+  // immediately. The user can still choose explicitly when several are available.
+  if(!supplierId&&data.eligibleSuppliers.length===1)data=window.LumaCommercialAnalysis.buildSection(page,data.eligibleSuppliers[0].supplier.id,rows);
+  return data;
 }
 function formatCommercialDate(value){
   if(!value)return 'Open';const date=new Date(`${value}T00:00:00`);return Number.isNaN(date.getTime())?String(value):date.toLocaleDateString('en-GB',{day:'2-digit',month:'2-digit',year:'numeric'});
@@ -1170,6 +1174,11 @@ function renderSupplierCostAnalysis(page){
   const warnings=[];
   if(data.invalidSelection)warnings.push('The saved supplier is no longer eligible. Select an active supplier with an active category assignment and active Price List.');
   if(!loading&&!failed&&!data.eligibleSuppliers.length)warnings.push(`No eligible supplier currently has an active ${data.category} category assignment and active Price List.`);
+  if(selection){
+    const listItems=Array.isArray(priceList?.price_list_items)?priceList.price_list_items:[],savedPrices=listItems.filter(item=>item?.unit_price!==null&&item?.unit_price!==undefined&&String(item.unit_price).trim()!==''&&Number.isFinite(Number(item.unit_price)));
+    if(!savedPrices.length)warnings.push(`The selected ${data.category} Price List contains no saved unit prices. Open Administration > Supplier Price Lists, edit Document No. ${priceList?.revision||'—'}, and save prices for the required BOM TAGs.`);
+    else if(!data.pricedRows.length&&data.rows.some(row=>row.quantity>0))warnings.push(`The selected Price List contains ${savedPrices.length} saved price(s), but none match the current ${data.category} BOM TAGs.`);
+  }
   if(selection&&data.missingPriceRows.length){const tags=[...new Set(data.missingPriceRows.map(row=>row.tag||'(blank TAG)'))];warnings.push(`${data.missingPriceRows.length} item(s) are missing prices. Missing TAGs: ${tags.join(', ')}.`);}
   const warningHtml=warnings.length?`<div class="analysis-warning">${warnings.map(message=>`<div>${escapeHtml(message)}</div>`).join('')}</div>`:'';
   const errorHtml=failed?'<div class="analysis-warning">Commercial data is unavailable. No supplier pricing is being used. Try refreshing the data.</div>':'';

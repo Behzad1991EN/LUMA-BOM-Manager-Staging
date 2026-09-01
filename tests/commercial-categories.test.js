@@ -17,6 +17,9 @@ function loadCategories() {
 test('legacy category names normalize centrally with only approved migration-compatibility TAG overrides', () => {
   const categories = loadCategories();
   assert.equal(categories.normalizeCategoryKey('Steel Structure'), 'substructure');
+  assert.equal(categories.normalizeCategoryKey('Steel Structure / Post'), 'posts');
+  assert.equal(categories.normalizeCategoryKey('Steel Structure / Posts'), 'posts');
+  assert.equal(categories.normalizeCategoryKey('Steel Structure / Substructure'), 'substructure');
   assert.equal(categories.normalizeCategoryKey('Bearings'), 'bearing');
   assert.equal(categories.normalizeCategoryKey('Fasteners / Limit Switch'), 'fasteners');
   assert.match(source, /k001479: 'substructure'/);
@@ -27,8 +30,13 @@ test('Part Master fields resolve the intended commercial leaf categories', () =>
   const categories = loadCategories();
   const fixtures = [
     [{Category:'Steel Structure', Part:'Main Post', 'Post Kind':'Main Post'}, 'posts'],
+    [{Category:'Steel Structure / Post', Part:'Main Post'}, 'posts'],
+    [{Category:'Steel Structure / Post', Part:'Bearing Post'}, 'posts'],
     [{Category:'Steel Structure', Part:'Main Tube A'}, 'substructure'],
     [{Category:'Steel Structure', Part:'Limit Switch Holder'}, 'substructure'],
+    [{Category:'Steel Structure / Substructure', Part:'Slew Drive Seat - Main Post'}, 'substructure'],
+    [{Category:'Steel Structure / Substructure', Part:'Bearing Adapter', Description:'Connection to Bearing Post'}, 'substructure'],
+    [{Category:'Steel Structure', Part:'Slew Drive Seat', Description:'2 x Main Post', 'Post Kind':0}, 'substructure'],
     [{Category:'Electrical', Part:'SOLTRK 3.0'}, 'soltrk'],
     [{Category:'Electrical', Part:'Cable Gland'}, 'electrical'],
     [{Category:'Bearings', Part:'Bearing'}, 'bearing'],
@@ -37,6 +45,8 @@ test('Part Master fields resolve the intended commercial leaf categories', () =>
   for (const [record, expected] of fixtures) assert.equal(categories.leafKeyForPart(record), expected);
   assert.equal(categories.partMatchesCategory(fixtures[0][0], 'Posts'), true);
   assert.equal(categories.partMatchesCategory(fixtures[0][0], 'Substructure'), false);
+  assert.equal(categories.partMatchesCategory(fixtures[5][0], 'Posts'), false);
+  assert.equal(categories.partMatchesCategory(fixtures[5][0], 'Substructure'), true);
   const substructureParts = [
     ['k001147', 'Slew Drive Connection'], ['k001119', 'Bearing Adapter'],
     ['k001162', 'Slew Drive Seat'], ['k001576', 'Square Washer'],

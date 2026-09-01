@@ -18,7 +18,10 @@
   const CATEGORY_ALIASES = Object.freeze({
     posts: 'posts',
     post: 'posts',
+    steelstructurepost: 'posts',
+    steelstructureposts: 'posts',
     substructure: 'substructure',
+    steelstructuresubstructure: 'substructure',
     steelstructure: 'substructure',
     bearing: 'bearing',
     bearings: 'bearing',
@@ -52,15 +55,22 @@
     const category = normalizeText(recordValue(record, 'Category', 'category'));
     const postKind = normalizeText(recordValue(record, 'Post Kind', 'postKind'));
     const tag = String(recordValue(record, 'TAG', 'tag')).trim().toLowerCase();
+    const partIdentity = normalizeText(`${recordValue(record, 'Part Name', 'part')} ${recordValue(record, 'Part', 'part')}`);
     const identity = normalizeText(`${recordValue(record, 'Part Name', 'part')} ${recordValue(record, 'Part', 'part')} ${recordValue(record, 'Description', 'description')}`);
 
     if (CATEGORY_OVERRIDES_BY_TAG[tag]) return CATEGORY_OVERRIDES_BY_TAG[tag];
     if (category.startsWith('fastener')) return 'fasteners';
-    if (postKind || identity.includes('mainpost') || identity.includes('bearingpost')) return 'posts';
-    // Steel Structure is the authoritative Part Master category. Everything in
-    // it except configured Posts belongs to the commercial Substructure list,
-    // including holders, adapters, seats, triggers, and connection pieces.
-    if (category.includes('steelstructure')) return 'substructure';
+    // Explicit Part Master leaf categories are authoritative. Check them before
+    // names/descriptions so a Substructure connection that mentions Main Post or
+    // Bearing Post cannot leak into the Posts Analysis section.
+    if (category === 'post' || category === 'posts' || category === 'steelstructurepost' || category === 'steelstructureposts') return 'posts';
+    if (category === 'substructure' || category === 'steelstructuresubstructure') return 'substructure';
+    // Compatibility for legacy records still stored as plain Steel Structure:
+    // only the actual configured Main Post and Bearing Post records are Posts.
+    if (category === 'steelstructure') {
+      if (postKind === 'mainpost' || postKind === 'bearingpost' || partIdentity.includes('mainpost') || partIdentity.includes('bearingpost')) return 'posts';
+      return 'substructure';
+    }
     if (category.startsWith('pvmodule') || identity === 'pvmodule') return 'pv_module';
     if (identity.includes('limitswitch')) return 'limit_switch';
     if (identity.includes('soltrk')) return 'soltrk';

@@ -69,8 +69,8 @@ test('TAG matching calculates quantity times unit price without matching descrip
   const {commercial} = loadModule();
   await commercial.load();
   const data = commercial.buildSection('substructure', 'steel-ok', [
-    {TAG: 'K001141', Description: 'Different wording is irrelevant', 'Total Qty': 120, Unit: 'pcs'},
-    {TAG: 'not-listed', Description: 'k001141 is only text here', 'Total Qty': 5, Unit: 'pcs'},
+    {TAG: 'K001141', Category:'Steel Structure / Substructure', Description: 'Different wording is irrelevant', 'Total Qty': 120, Unit: 'pcs'},
+    {TAG: 'not-listed', Category:'Steel Structure / Substructure', Description: 'k001141 is only text here', 'Total Qty': 5, Unit: 'pcs'},
   ]);
   assert.equal(data.rows[0].unitPrice, 177.25);
   assert.equal(data.rows[0].total, 21270);
@@ -83,8 +83,8 @@ test('deliberate zero and missing prices remain distinct', async () => {
   const {commercial} = loadModule();
   await commercial.load();
   const data = commercial.buildSection('substructure', 'steel-ok', [
-    {TAG: 'zero-tag', 'Total Qty': 8},
-    {TAG: 'blank-price', 'Total Qty': 8},
+    {TAG: 'zero-tag', Category:'Steel Structure / Substructure', 'Total Qty': 8},
+    {TAG: 'blank-price', Category:'Steel Structure / Substructure', 'Total Qty': 8},
   ]);
   assert.equal(data.rows[0].unitPrice, 0);
   assert.equal(data.rows[0].total, 0);
@@ -97,11 +97,25 @@ test('deliberate zero and missing prices remain distinct', async () => {
 test('invalid restored supplier selection is flagged and never priced', async () => {
   const {commercial} = loadModule();
   await commercial.load();
-  const data = commercial.buildSection('substructure', 'inactive-supplier', [{TAG: 'k001141', 'Total Qty': 120}]);
+  const data = commercial.buildSection('substructure', 'inactive-supplier', [{TAG: 'k001141', Category:'Steel Structure / Substructure', 'Total Qty': 120}]);
   assert.equal(data.invalidSelection, true);
   assert.equal(data.selection, null);
   assert.equal(data.rows[0].unitPrice, null);
   assert.equal(data.subtotal, 0);
+});
+
+test('Posts section rejects a complete mixed BOM and keeps only Main Post and Bearing Post rows', () => {
+  const {commercial} = loadModule();
+  const data = commercial.buildSection('posts', '', [
+    {TAG:'k001152', Category:'Steel Structure / Post', Part:'Main Post', 'Post Kind':'Main Post', 'Total Qty':10},
+    {TAG:'k001120', Category:'Steel Structure / Post', Part:'Bearing Post', 'Post Kind':'Bearing Post', 'Total Qty':40},
+    {TAG:'k001162', Category:'Steel Structure / Substructure', Part:'Slew Drive Seat', 'Post Kind':0, 'Total Qty':20},
+    {TAG:'k001119', Category:'Steel Structure / Substructure', Part:'Bearing Adapter', Description:'Bearing Post', 'Post Kind':0, 'Total Qty':40},
+    {TAG:'legacy-seat', Category:'Steel Structure', Part:'Slew Drive Seat', Description:'2 x Main Post', 'Post Kind':0, 'Total Qty':20},
+    {TAG:'k001135', Category:'Bearings', Part:'Bearing 110', 'Post Kind':0, 'Total Qty':80},
+    {TAG:'k001393', Category:'Electrical', Part:'Limit Switch', 'Post Kind':0, 'Total Qty':20},
+  ]);
+  assert.deepEqual(data.rows.map(row => row.tag), ['k001152', 'k001120']);
 });
 
 test('validity status reports future and expired dates without rejecting active lists', () => {
@@ -116,6 +130,19 @@ test('workspace project payload persists stable supplier IDs for each mapped sec
   assert.match(APP_SOURCE, /analysis_supplier_selections:normalizeAnalysisSupplierSelections\(p\.analysis_supplier_selections\)/);
   assert.match(APP_SOURCE, /p\.analysis_supplier_selections=normalizeAnalysisSupplierSelections\(raw\?\.analysis_supplier_selections\)/);
   assert.match(APP_SOURCE, /p\.analysis_supplier_selections\[page\]=event\.target\.value/);
+});
+
+test('a single eligible supplier is used automatically while several still require selection', () => {
+  assert.match(APP_SOURCE, /if\(!supplierId&&data\.eligibleSuppliers\.length===1\)data=window\.LumaCommercialAnalysis\.buildSection/);
+  assert.match(APP_SOURCE, /The selected \$\{data\.category\} Price List contains no saved unit prices/);
+  assert.match(APP_SOURCE, /none match the current \$\{data\.category\} BOM TAGs/);
+});
+
+test('commercial runtime scripts use one cache-busting release token', () => {
+  const indexSource = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  for (const script of ['price-list-service.js', 'commercial-categories.js', 'analysis-commercial.js', 'app.js']) {
+    assert.match(indexSource, new RegExp(`${script.replace('.', '\\.') }\\?v=20260901-posts-price-fix`));
+  }
 });
 
 test('every Analysis table uses the shared numbered sortable and filterable table', () => {

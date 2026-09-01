@@ -96,7 +96,12 @@
     const requestedSupplierId = String(supplierId || '');
     const selection = eligibleSuppliers.find(entry => String(entry.supplier.id) === requestedSupplierId) || null;
     const invalidSelection = Boolean(requestedSupplierId && state.status === 'ready' && !selection);
-    const sourceRows = Array.isArray(bomRows) ? bomRows : [];
+    // Enforce the section boundary here as well as in the page renderer. A
+    // caller can pass the complete BOM without allowing unrelated rows into a
+    // commercial section or its missing-price report.
+    const sourceRows = (Array.isArray(bomRows) ? bomRows : []).filter(row =>
+      global.LumaCommercialCategories.leafKeyForPart(row) === sectionKey
+    );
     const pricesByTag = new Map();
 
     if (selection) {

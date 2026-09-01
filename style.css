@@ -2507,7 +2507,7 @@ th.wrap {
 }
 
 .overhead-period-grid {
-    grid-template-columns: repeat(3, minmax(220px, 1fr));
+    grid-template-columns: repeat(4, minmax(190px, 1fr));
     margin-bottom: 18px;
 }
 
@@ -2528,8 +2528,14 @@ th.wrap {
 
 .overhead-cost-table th:nth-child(2),
 .overhead-cost-table td:nth-child(2) {
-    width: 90px;
+    width: 130px;
     white-space: nowrap;
+}
+
+.overhead-code-input {
+    width: 100%;
+    min-width: 100px;
+    font-weight: 700;
 }
 
 .overhead-cost-table th:nth-child(4),
@@ -2610,6 +2616,19 @@ th.wrap {
     background: #fff0d8;
     color: var(--accent-dark);
     font-weight: 800;
+}
+
+.analysis-per-mw-card {
+    border-color: var(--export) !important;
+    background: #EDF9F7 !important;
+}
+
+.analysis-card.analysis-per-mw-card small {
+    display: block;
+    margin-top: 6px;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.35;
 }
 
 .overhead-input-with-unit {

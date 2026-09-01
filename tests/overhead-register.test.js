@@ -34,13 +34,25 @@ test('normal users cannot start Overhead writes in the browser service',async()=
   assert.equal(called,false);
 });
 
-test('Administration edits yearly costs and calculates monthly costs while Analysis is read-only',()=>{
+test('Administration edits Codes and yearly costs while calculating monthly and per-MW values',()=>{
   assert.match(ADMIN_SOURCE,/<th>No\.<\/th><th>Code<\/th>/);
+  assert.match(ADMIN_SOURCE,/name="overhead_code_\$\{index\}" required/);
+  assert.match(ADMIN_SOURCE,/code:form\.elements\[`overhead_code_\$\{index\}`\]\.value\.trim\(\)/);
   assert.match(ADMIN_SOURCE,/Monthly Cost \(÷ 12\)/);
   assert.match(ADMIN_SOURCE,/value\/12/);
+  assert.match(ADMIN_SOURCE,/data-overhead-cost-per-mw/);
+  assert.match(ADMIN_SOURCE,/yearlyTotal\/capacity/);
   assert.match(ADMIN_SOURCE,/Valid Till cannot be before Valid From/);
   assert.match(APP_SOURCE,/Overhead Cost Register/);
+  assert.match(APP_SOURCE,/Overhead Cost per MW/);
   assert.match(APP_SOURCE,/Read-only for users/);
+});
+
+test('Analysis exposes Personnel cost per MW and excludes CAT',()=>{
+  assert.match(APP_SOURCE,/Personnel Cost per MW/);
+  assert.match(APP_SOURCE,/filter\(page=>page!==['"]cat['"]\)/);
+  assert.match(APP_SOURCE,/analysisCommercialPages\(\)\.map/);
+  assert.match(APP_SOURCE,/analysisCommercialPages\(\)\.includes\(page\)/);
 });
 
 test('migration upgrades the secured commercial setting and seeds all Overhead items',()=>{

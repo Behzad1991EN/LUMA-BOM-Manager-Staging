@@ -60,7 +60,7 @@
     const penaltyWasBlank = isBlank(penaltyPercent);
     const normalizedPenaltyPercent = penaltyWasBlank ? null : nonNegativeNumber(penaltyPercent);
     const marginWasBlank = isBlank(marginPercent);
-    const normalizedMarginPercent = marginWasBlank ? 0 : nonNegativeNumber(marginPercent);
+    const normalizedMarginPercent = marginWasBlank ? 0 : normalizeProjectPercentage(marginPercent, null);
     const errors = [];
 
     if (overheadSettingsStatus !== 'ready') errors.push(overheadSettingsStatus === 'loading' || overheadSettingsStatus === 'idle' ? 'Overhead configuration is loading.' : 'Overhead configuration is unavailable.');
@@ -70,7 +70,7 @@
     if (contingencyPercent === null) errors.push('Commercial Contingency percentage must be zero or greater.');
     if (penaltyWasBlank) errors.push('Penalty percentage is required.');
     else if (normalizedPenaltyPercent === null) errors.push('Penalty percentage must be zero or greater.');
-    if (!marginWasBlank && normalizedMarginPercent === null) errors.push('Margin percentage must be zero or greater.');
+    if (!marginWasBlank && normalizedMarginPercent === null) errors.push('Margin percentage must be a valid number.');
 
     const coefficientA = annualOverhead !== null && annualCapacity !== null && annualCapacity > 0 ? annualOverhead / annualCapacity : null;
     const constantOverhead = coefficientA !== null && projectCapacity !== null ? projectCapacity * coefficientA : null;

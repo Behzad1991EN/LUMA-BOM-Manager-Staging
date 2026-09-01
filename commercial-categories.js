@@ -10,6 +10,7 @@
     limit_switch: 'Limit Switch',
     soltrk: 'SOLTRK',
     junction_box: 'Junction Box',
+    electrical: 'Electrical',
     fasteners: 'Fasteners',
   });
 

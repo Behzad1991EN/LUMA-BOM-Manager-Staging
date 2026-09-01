@@ -2631,6 +2631,79 @@ th.wrap {
     line-height: 1.35;
 }
 
+.result-controls {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(180px, 1fr));
+    gap: 12px;
+    max-width: 850px;
+    margin-bottom: 18px;
+}
+
+.result-controls label {
+    display: grid;
+    gap: 6px;
+    font-weight: 700;
+}
+
+.result-controls label > span {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.result-controls em {
+    color: var(--muted);
+    font-size: 11px;
+    font-style: normal;
+    font-weight: 600;
+}
+
+.result-share-bar {
+    --result-share: 0%;
+    position: relative;
+    min-width: 110px;
+    height: 26px;
+    overflow: hidden;
+    border: 1px solid #D3C2A8;
+    background: #FFFDF9;
+}
+
+.result-share-bar > span {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: var(--result-share);
+    opacity: .72;
+}
+
+.result-share-bar.material > span {
+    background: #F6A623;
+}
+
+.result-share-bar.total > span {
+    background: #15968B;
+}
+
+.result-share-bar > strong {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    height: 100%;
+    place-items: center;
+    color: #17211F;
+    font-size: 12px;
+}
+
+.result-total-row td {
+    border-top: 2px solid var(--accent);
+    background: #FFF0D8;
+    color: var(--accent-dark);
+    font-weight: 800;
+}
+
+.result-final-total {
+    margin-top: 18px;
+}
+
 .overhead-input-with-unit {
     display: grid;
     grid-template-columns: auto minmax(120px, 1fr) auto;

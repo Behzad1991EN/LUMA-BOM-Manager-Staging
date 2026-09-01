@@ -39,7 +39,7 @@ function loadModule(data = fixture()) {
   return {commercial: window.LumaCommercialAnalysis, loads: () => loads};
 }
 
-test('central category mapping exposes the nine commercial leaf sections', () => {
+test('central category mapping exposes all ten commercial leaf sections including general Electrical', () => {
   const {commercial} = loadModule();
   assert.deepEqual({...commercial.SECTION_CATEGORIES}, {
     posts: 'Posts',
@@ -50,6 +50,7 @@ test('central category mapping exposes the nine commercial leaf sections', () =>
     limit_switch: 'Limit Switch',
     soltrk: 'SOLTRK',
     junction_box: 'Junction Box',
+    electrical: 'Electrical',
     fasteners: 'Fasteners',
   });
   assert.equal(commercial.SECTION_CATEGORIES.major, undefined);

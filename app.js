@@ -268,7 +268,7 @@ function normalizeMarginPercent(value){return window.LumaCommercialCostCalculato
 function normalizePersonnelYearlyTarget(value){if(value===undefined||value===null)return window.LumaPersonnelCostCalculator.DEFAULT_YEARLY_TARGET_MW;if(String(value).trim()==='')return '';const number=Number(value);return Number.isFinite(number)?number:'';}
 function normalizeAnalysisSupplierSelections(value){
   const source=value&&typeof value==='object'?value:{};
-  return {posts:String(source.posts||''),substructure:String(source.substructure||source.steel||''),bearing:String(source.bearing||''),slew_drive:String(source.slew_drive||''),pv_module:String(source.pv_module||''),limit_switch:String(source.limit_switch||''),soltrk:String(source.soltrk||''),junction_box:String(source.junction_box||''),fasteners:String(source.fasteners||'')};
+  return {posts:String(source.posts||''),substructure:String(source.substructure||source.steel||''),bearing:String(source.bearing||''),slew_drive:String(source.slew_drive||''),pv_module:String(source.pv_module||''),limit_switch:String(source.limit_switch||''),soltrk:String(source.soltrk||''),junction_box:String(source.junction_box||''),electrical:String(source.electrical||''),fasteners:String(source.fasteners||'')};
 }
 function makeProject(name='Sample Project',code='SAMPLE'){
   return {
@@ -986,6 +986,7 @@ const ANALYSIS_ITEM_PAGE_CONFIG=Object.freeze({
   limit_switch:{title:'Limit Switch',subtitle:'Read-only supplier pricing for limit-switch components.'},
   soltrk:{title:'SOLTRK',subtitle:'Read-only supplier pricing for SOLTRK components.'},
   junction_box:{title:'Junction Box',subtitle:'Read-only supplier pricing for junction-box components.'},
+  electrical:{title:'Electrical',subtitle:'Read-only supplier pricing for general electrical, SCADA, Safeguard, Cable Gland, Power Supply, and Anemometer components.'},
   fasteners:{title:'Fasteners',subtitle:'Read-only supplier pricing by BOM TAG for fasteners, including the selected contingency.'},
 });
 function analysisCommercialPages(){return Object.keys(window.LumaCommercialAnalysis.SECTION_CATEGORIES).filter(page=>page!=='cat');}
@@ -1210,15 +1211,107 @@ function buildFinalCostData(baseData=buildTotalCostData(),logisticsData=buildLog
   const result=window.LumaCommercialCostCalculator.buildResult({baseCosts:baseData.grandTotals,externalLogistics:logisticsData.externalTotals,internalLogistics:logisticsData.internalTotals,vatRate:project?.vat_rate,baseGapCount:baseData.gapCount,logisticsComplete:logisticsData.complete,overheadSettings:overheadState.settings,overheadSettingsStatus:overheadState.status,projectCapacityMwp:current?.kpis?.totalPower,commercialContingencyPercent:project?.commercial_contingency_percent,penaltyPercent:project?.penalty_percent,marginPercent:project?.margin_percent});
   return {...result,baseData,logisticsData};
 }
+const RESULT_MATERIAL_GROUPS=Object.freeze([
+  Object.freeze({key:'steel',label:'Steel Structure',pages:Object.freeze(['posts','substructure'])}),
+  Object.freeze({key:'bearing',label:'Bearing',pages:Object.freeze(['bearing'])}),
+  Object.freeze({key:'slew_drive',label:'Slew Drive',pages:Object.freeze(['slew_drive'])}),
+  Object.freeze({key:'fasteners',label:'Fasteners',pages:Object.freeze(['fasteners'])}),
+  Object.freeze({key:'electrical',label:'Electrical',pages:Object.freeze(['electrical','pv_module','limit_switch','soltrk','junction_box'])}),
+]);
+function resultTransportField(shipment){
+  const method=String(shipment?.rate?.route_method||'').toLowerCase(),origin=E.normalizeText(`${shipment?.origin||''} ${shipment?.supplier?.country||''} ${shipment?.rate?.origin_country||''}`);
+  if(method.includes('fob')||origin.includes('china'))return 'transportFob';
+  if(method==='port_warehouse_site')return 'transportGenoa';
+  if(method==='direct'||origin.includes('italy'))return 'transportItalian';
+  return 'transportGenoa';
+}
+function resultTransportAmounts(shipment){
+  const rate=shipment?.rate||{},calculation=shipment?.calculation||{},method=String(rate.route_method||'').toLowerCase(),amounts={transportGenoa:0,transportItalian:0,transportFob:0};
+  if(method&&method!=='legacy'&&Number.isFinite(Number(calculation.capacityUtilization))){
+    const factor=Number(calculation.capacityUtilization),storagePeriods=Number(calculation.storagePeriods)||0,value=field=>Math.max(0,E.asNumber(rate[field],0))*factor;
+    amounts.transportFob+=value('origin_to_port_per_container');
+    amounts.transportGenoa+=value('port_to_site_per_container');
+    amounts.transportItalian+=value('port_to_warehouse_per_container')+value('warehouse_unloading_per_container')+value('warehouse_truck_loading_per_container')+Math.max(0,E.asNumber(rate.warehouse_storage_per_period,0))*storagePeriods*factor+value('warehouse_to_site_per_container');
+    const direct=value('direct_transport_per_container');if(direct)amounts[resultTransportField(shipment)]+=direct;
+    const customsAndInsurance=value('customs_clearance_per_container')+value('insurance_per_container');if(customsAndInsurance)amounts[method.includes('fob')?'transportFob':resultTransportField(shipment)]+=customsAndInsurance;
+    const allocated=Object.values(amounts).reduce((sum,value)=>sum+value,0),difference=Number(calculation.totalLogisticsCost)-allocated;if(Number.isFinite(difference)&&Math.abs(difference)>1e-7)amounts[resultTransportField(shipment)]+=difference;
+    return amounts;
+  }
+  const total=Number(calculation.totalLogisticsCost);if(Number.isFinite(total))amounts[resultTransportField(shipment)]=total;return amounts;
+}
+function buildResultMaterialGroup(group,logisticsData){
+  let cost=0,complete=true;const issues=[],activePages=[];
+  for(const page of group.pages){
+    const data=buildSupplierCostData(page),hasRows=data.rows.some(row=>E.asNumber(row.quantity,0)>0);if(!hasRows)continue;activePages.push(page);
+    if(data.status!=='ready'){complete=false;issues.push(`${group.label}: commercial data is not ready.`);continue;}
+    if(!data.selection){complete=false;issues.push(`${window.LumaCommercialAnalysis.SECTION_CATEGORIES[page]}: select a supplier and active Price List.`);continue;}
+    if(data.currency!=='EUR'){complete=false;issues.push(`${window.LumaCommercialAnalysis.SECTION_CATEGORIES[page]} uses ${data.currency}; Result requires EUR or a future approved exchange rate.`);}else cost+=data.subtotal;
+    if(data.missingPriceRows.length){complete=false;issues.push(`${window.LumaCommercialAnalysis.SECTION_CATEGORIES[page]}: ${data.missingPriceRows.length} BOM item(s) are missing prices.`);}
+  }
+  const transport={transportGenoa:0,transportItalian:0,transportFob:0},logisticsPages=activePages.filter(page=>['posts','substructure','bearing','slew_drive'].includes(page));
+  if(logisticsPages.length){
+    const shipments=logisticsData.shipments.filter(shipment=>logisticsPages.includes(shipment.page));
+    if(shipments.length!==logisticsPages.length){complete=false;issues.push(`${group.label}: one or more required Logistics shipments are missing.`);}
+    for(const shipment of shipments){
+      if(shipment.status!=='complete'||!shipment.calculation?.complete){complete=false;issues.push(`${group.label}: ${shipment.message||'Logistics configuration is incomplete.'}`);continue;}
+      if(shipment.rate?.currency!=='EUR'){complete=false;issues.push(`${group.label} Logistics uses ${shipment.rate?.currency||'an unknown currency'}; Result requires EUR.`);continue;}
+      const amounts=resultTransportAmounts(shipment);for(const field of Object.keys(transport))transport[field]+=amounts[field];
+    }
+  }
+  if(!activePages.length)issues.push(`${group.label}: no current BOM items.`);
+  return {key:group.key,label:group.label,cost,...transport,complete,issues};
+}
+function buildResultAnalysisData(){
+  const project=getActiveProject(),logisticsData=buildLogisticsData(),personnel=buildPersonnelCostData(),overheadState=window.LumaOverheadService.snapshot(),capacity=E.asNumber(current?.kpis?.totalPower,0);
+  const materialSections=RESULT_MATERIAL_GROUPS.map(group=>buildResultMaterialGroup(group,logisticsData));
+  const internalRows=personnel.rows.map(row=>({key:row.key,label:row.label,costPerMw:row.costPerMw,projectCost:row.costPerMw===null?null:row.costPerMw*capacity,complete:personnel.complete&&row.costPerMw!==null}));
+  const annualOverhead=Number(overheadState.settings?.ksi_annual_overhead_eur),annualCapacity=Number(overheadState.settings?.ksi_annual_project_capacity_mwp),overheadPerMw=overheadState.status==='ready'&&Number.isFinite(annualOverhead)&&annualOverhead>=0&&Number.isFinite(annualCapacity)&&annualCapacity>0?annualOverhead/annualCapacity:null;
+  internalRows.push({key:'overhead',label:'Overhead',costPerMw:overheadPerMw,projectCost:overheadPerMw===null?null:overheadPerMw*capacity,complete:overheadPerMw!==null});
+  const calculated=window.LumaResultCostCalculator.calculate({materialSections,internalRows,contingencyPercent:project?.commercial_contingency_percent,marginPercent:project?.margin_percent,vatRate:project?.vat_rate});
+  const warnings=[...materialSections.flatMap(section=>section.issues),...calculated.errors];
+  return {...calculated,capacity,logisticsData,personnel,overheadState,warnings:[...new Set(warnings)]};
+}
+function resultMoney(value){return value===null||value===undefined?'—':overheadMoney(value);}
+function resultPercent(value){return value===null||value===undefined?'—':`${formatAnalysisNumber(value,1)}%`;}
+function decorateResultShareBars(containerId,rows,columns){
+  const table=document.querySelector(`#${containerId} [data-analysis-table]`);if(!table)return;const tableRows=[...table.querySelectorAll('tbody tr[data-analysis-row]')];
+  tableRows.at(-1)?.classList.add('result-total-row');
+  tableRows.forEach((row,index)=>columns.forEach(({cellIndex,key,tone})=>{const value=rows[index]?.[key],cell=row.cells[cellIndex];if(!cell||value===null||value===undefined)return;const bar=document.createElement('div');bar.className=`result-share-bar ${tone}`;bar.style.setProperty('--result-share',`${Math.min(100,Math.max(0,Number(value)||0))}%`);const fill=document.createElement('span'),label=document.createElement('strong');label.textContent=resultPercent(value);bar.append(fill,label);cell.textContent='';cell.appendChild(bar);}));
+}
+function renderResultAnalysis(){
+  const root=document.getElementById('tabAnalysis'),project=getActiveProject(),data=buildResultAnalysisData();if(!root||!project)return;
+  const materialRows=data.materials.map(row=>({Section:row.label,Cost:resultMoney(row.cost),'Transportation from Genoa to Site':resultMoney(row.transportGenoa),'Transportation from Italian Supplier/Warehouse to Site':resultMoney(row.transportItalian),'Transportation from FOB China to Site':resultMoney(row.transportFob),'Landed Cost':resultMoney(row.landedCost),'Share in Material':resultPercent(row.shareInMaterial),'Share in Total':resultPercent(row.shareInTotal),_shareMaterial:row.shareInMaterial,_shareTotal:row.shareInTotal}));
+  const materialComplete=data.materials.every(row=>row.complete),materialTotals={Section:'MATERIAL TOTAL',Cost:materialComplete?resultMoney(data.materials.reduce((sum,row)=>sum+row.cost,0)):'—','Transportation from Genoa to Site':materialComplete?resultMoney(data.materials.reduce((sum,row)=>sum+row.transportGenoa,0)):'—','Transportation from Italian Supplier/Warehouse to Site':materialComplete?resultMoney(data.materials.reduce((sum,row)=>sum+row.transportItalian,0)):'—','Transportation from FOB China to Site':materialComplete?resultMoney(data.materials.reduce((sum,row)=>sum+row.transportFob,0)):'—','Landed Cost':resultMoney(data.materialLandedTotal),'Share in Material':data.materialLandedTotal===null?'—':'100.0%','Share in Total':data.materialLandedTotal!==null&&data.totalInternalCost>0?resultPercent(data.materialLandedTotal/data.totalInternalCost*100):'—',_shareMaterial:data.materialLandedTotal===null?null:100,_shareTotal:data.materialLandedTotal!==null&&data.totalInternalCost>0?data.materialLandedTotal/data.totalInternalCost*100:null};materialRows.push(materialTotals);
+  const internalRows=data.internalRows.map(row=>({Section:row.label,'Cost per MW':resultMoney(row.costPerMw),'Project Capacity':`${formatAnalysisNumber(data.capacity,3)} MW`,'Project Cost':resultMoney(row.projectCost),'Share in Total':resultPercent(row.shareInTotal),_shareTotal:row.shareInTotal}));
+  internalRows.push({Section:'PERSONNEL + OVERHEAD TOTAL','Cost per MW':data.internalCostTotal===null?'—':`${resultMoney(data.internalRows.reduce((sum,row)=>sum+(row.costPerMw||0),0))} / MW`,'Project Capacity':`${formatAnalysisNumber(data.capacity,3)} MW`,'Project Cost':resultMoney(data.internalCostTotal),'Share in Total':data.internalCostTotal!==null&&data.totalInternalCost>0?resultPercent(data.internalCostTotal/data.totalInternalCost*100):'—',_shareTotal:data.internalCostTotal!==null&&data.totalInternalCost>0?data.internalCostTotal/data.totalInternalCost*100:null});
+  const formulaRows=[
+    {Item:'Total Material Landed Cost',Formula:'Material Cost + all allocated Transportation',Amount:resultMoney(data.materialLandedTotal)},
+    {Item:'Personnel + Overhead',Formula:'Personnel project costs + Overhead project allocation',Amount:resultMoney(data.internalCostTotal)},
+    {Item:'Total Internal Cost',Formula:`${resultMoney(data.materialLandedTotal)} + ${resultMoney(data.internalCostTotal)}`,Amount:resultMoney(data.totalInternalCost)},
+    {Item:'Contingency',Formula:`${resultMoney(data.totalInternalCost)} × ${resultPercent(data.contingencyPercent)}`,Amount:resultMoney(data.contingencyAmount)},
+    {Item:'Expected Cost',Formula:`${resultMoney(data.totalInternalCost)} + ${resultMoney(data.contingencyAmount)}`,Amount:resultMoney(data.expectedCost)},
+    {Item:'Margin',Formula:`${resultMoney(data.expectedCost)} × ${resultPercent(data.marginPercent)}`,Amount:resultMoney(data.marginAmount)},
+    {Item:'Price Before VAT',Formula:`${resultMoney(data.expectedCost)} + ${resultMoney(data.marginAmount)}`,Amount:resultMoney(data.priceBeforeVat)},
+    {Item:'VAT',Formula:`${resultMoney(data.priceBeforeVat)} × ${resultPercent(data.vatRate*100)}`,Amount:resultMoney(data.vatAmount)},
+    {Item:'Final Price',Formula:`${resultMoney(data.priceBeforeVat)} + ${resultMoney(data.vatAmount)}`,Amount:resultMoney(data.finalPrice)},
+  ];
+  const contingencyInvalid=Number(project.commercial_contingency_percent)<0||!Number.isFinite(Number(project.commercial_contingency_percent)),marginInvalid=project.margin_percent!==''&&!Number.isFinite(Number(project.margin_percent)),warnings=data.warnings.length?`<div class="analysis-warning">${data.warnings.map(warning=>`<div>${escapeHtml(warning)}</div>`).join('')}</div>`:'';
+  root.innerHTML=`<div class="analysis-subpage-nav">${analysisBackButtonHtml()}</div><div class="analysis-title-row"><div><h2 class="table-title">Result</h2><p class="table-subtitle">Material landed costs, Personnel, Overhead, Contingency, signed Margin, and final VAT in the required calculation order.</p></div></div><div class="analysis-controls result-controls"><label class="${contingencyInvalid?'analysis-input-error':''}"><span>Contingency %</span><input id="resultContingencyPercent" type="number" min="0" step="any" value="${escapeHtml(project.commercial_contingency_percent)}"></label><label class="${marginInvalid?'analysis-input-error':''}"><span>Margin % <em>Negative or positive</em></span><input id="resultMarginPercent" type="number" step="any" value="${escapeHtml(project.margin_percent)}" placeholder="Blank = 0%"></label><label><span>VAT <em>Applied last</em></span><select id="resultVatRate">${VAT_OPTIONS.map(option=>`<option value="${option.value}" ${option.value===normalizeVatRate(project.vat_rate)?'selected':''}>${option.label}</option>`).join('')}</select></label></div>${warnings}<h3 class="table-title analysis-detail-title">Material and Transportation</h3><div id="resultMaterialTable">${makeAnalysisTable(['Section','Cost','Transportation from Genoa to Site','Transportation from Italian Supplier/Warehouse to Site','Transportation from FOB China to Site','Landed Cost','Share in Material','Share in Total'],materialRows)}</div><h3 class="table-title analysis-detail-title">Personnel and Overhead</h3><p class="table-subtitle">Project allocations come directly from the Personnel and Overhead sections.</p><div id="resultInternalTable">${makeAnalysisTable(['Section','Cost per MW','Project Capacity','Project Cost','Share in Total'],internalRows)}</div><h3 class="table-title analysis-detail-title">Final Calculation</h3>${makeAnalysisTable(['Item','Formula','Amount'],formulaRows)}<div class="admin-final-total result-final-total"><span>${data.complete?'FINAL PRICE':'FINAL PRICE INCOMPLETE'}</span><strong>${resultMoney(data.finalPrice)}</strong></div>`;
+  wireAnalysisBackButton();decorateResultShareBars('resultMaterialTable',materialRows,[{cellIndex:7,key:'_shareMaterial',tone:'material'},{cellIndex:8,key:'_shareTotal',tone:'total'}]);decorateResultShareBars('resultInternalTable',internalRows,[{cellIndex:5,key:'_shareTotal',tone:'total'}]);
+  const update=(key,normalizer,value)=>{project[key]=normalizer(value);markDirty();renderAnalysis();requestAnimationFrame(updateFixedHorizontalScroll);};
+  document.getElementById('resultContingencyPercent')?.addEventListener('change',event=>update('commercial_contingency_percent',normalizeCommercialContingencyPercent,event.target.value));
+  document.getElementById('resultMarginPercent')?.addEventListener('change',event=>update('margin_percent',normalizeMarginPercent,event.target.value));
+  document.getElementById('resultVatRate')?.addEventListener('change',event=>update('vat_rate',normalizeVatRate,event.target.value));
+}
 function overheadMoney(value){return value===null||value===undefined?'—':currencyAmount(value,'EUR');}
 function overheadPercent(value){return value===null||value===undefined?'—':`${formatAnalysisNumber(value,2)}%`;}
 function overheadAnalysisHtml(data,project){
-  const overhead=data.overhead,settings=window.LumaOverheadService.snapshot().settings,penaltyMissing=overhead.penaltyMissing,contingencyInvalid=Number(project.commercial_contingency_percent)<0,penaltyInvalid=!penaltyMissing&&Number(project.penalty_percent)<0,marginInvalid=project.margin_percent!==''&&Number(project.margin_percent)<0,marginInput=project.margin_percent===''?'':project.margin_percent;
+  const overhead=data.overhead,settings=window.LumaOverheadService.snapshot().settings,penaltyMissing=overhead.penaltyMissing,contingencyInvalid=Number(project.commercial_contingency_percent)<0,penaltyInvalid=!penaltyMissing&&Number(project.penalty_percent)<0,marginInvalid=project.margin_percent!==''&&!Number.isFinite(Number(project.margin_percent)),marginInput=project.margin_percent===''?'':project.margin_percent;
   const overheadRows=(settings.items||[]).map((item,index)=>({'No.':index+1,Code:item.code,'Overhead Item':item.description,'Yearly Cost':overheadMoney(item.yearly_cost_eur),'Monthly Cost (÷ 12)':overheadMoney(item.yearly_cost_eur/12)}));
   overheadRows.push({'No.':'','Code':'','Overhead Item':'OVERHEAD COST','Yearly Cost':overheadMoney(overhead.annualOverhead),'Monthly Cost (÷ 12)':overheadMoney(overhead.annualOverhead/12)});
   const validity=`${formatCommercialDate(settings.valid_from)} – ${formatCommercialDate(settings.valid_until)}`;
   return `<section class="analysis-overhead-section" aria-labelledby="analysisOverheadTitle"><div class="analysis-overhead-heading"><div><h2 id="analysisOverheadTitle" class="table-title">Overhead</h2><p class="table-subtitle">Company constants, current project capacity, and additive commercial percentages produce one Project Overhead amount.</p></div></div>
-    <div class="analysis-commercial-inputs" aria-label="Project commercial inputs"><label class="${contingencyInvalid?'analysis-input-error':''}"><span>Contingency %</span><input id="analysisCommercialContingency" type="number" min="0" step="any" required aria-invalid="${contingencyInvalid}" value="${escapeHtml(project.commercial_contingency_percent)}">${contingencyInvalid?'<small>Contingency percentage must be zero or greater.</small>':''}</label><label class="${penaltyMissing||penaltyInvalid?'analysis-input-error':''}"><span>Penalty % <em>Required</em></span><input id="analysisPenaltyPercent" type="number" min="0" step="any" required aria-invalid="${penaltyMissing||penaltyInvalid}" value="${escapeHtml(project.penalty_percent)}" placeholder="Required">${penaltyMissing?'<small>Penalty percentage is required. Enter 0 if no penalty applies.</small>':penaltyInvalid?'<small>Penalty percentage must be zero or greater.</small>':''}</label><label class="${marginInvalid?'analysis-input-error':''}"><span>Margin % <em>Optional</em></span><input id="analysisMarginPercent" type="number" min="0" step="any" aria-invalid="${marginInvalid}" value="${escapeHtml(marginInput)}" placeholder="Blank = 0%">${marginInvalid?'<small>Margin percentage must be zero or greater.</small>':''}</label><label><span>VAT <em>Applied last</em></span><select id="analysisVatRate" required>${VAT_OPTIONS.map(option=>`<option value="${option.value}" ${option.value===normalizeVatRate(project.vat_rate)?'selected':''}>${option.label}</option>`).join('')}</select></label></div>
+    <div class="analysis-commercial-inputs" aria-label="Project commercial inputs"><label class="${contingencyInvalid?'analysis-input-error':''}"><span>Contingency %</span><input id="analysisCommercialContingency" type="number" min="0" step="any" required aria-invalid="${contingencyInvalid}" value="${escapeHtml(project.commercial_contingency_percent)}">${contingencyInvalid?'<small>Contingency percentage must be zero or greater.</small>':''}</label><label class="${penaltyMissing||penaltyInvalid?'analysis-input-error':''}"><span>Penalty % <em>Required</em></span><input id="analysisPenaltyPercent" type="number" min="0" step="any" required aria-invalid="${penaltyMissing||penaltyInvalid}" value="${escapeHtml(project.penalty_percent)}" placeholder="Required">${penaltyMissing?'<small>Penalty percentage is required. Enter 0 if no penalty applies.</small>':penaltyInvalid?'<small>Penalty percentage must be zero or greater.</small>':''}</label><label class="${marginInvalid?'analysis-input-error':''}"><span>Margin % <em>Negative or positive</em></span><input id="analysisMarginPercent" type="number" step="any" aria-invalid="${marginInvalid}" value="${escapeHtml(marginInput)}" placeholder="Blank = 0%">${marginInvalid?'<small>Margin percentage must be a valid number.</small>':''}</label><label><span>VAT <em>Applied last</em></span><select id="analysisVatRate" required>${VAT_OPTIONS.map(option=>`<option value="${option.value}" ${option.value===normalizeVatRate(project.vat_rate)?'selected':''}>${option.label}</option>`).join('')}</select></label></div>
     <div class="analysis-overhead-grid">
       <article class="analysis-per-mw-card"><h3>KSI Constants</h3><dl><div><dt>KSI Annual Overhead</dt><dd>${overheadMoney(overhead.annualOverhead)} / Year</dd></div><div><dt>KSI Annual Project Capacity</dt><dd>${overhead.annualCapacity===null?'—':`${formatAnalysisNumber(overhead.annualCapacity,2)} MWp / Year`}</dd></div><div><dt>Overhead Cost per MW</dt><dd><span>${overheadMoney(overhead.annualOverhead)} ÷ ${overhead.annualCapacity===null?'—':`${formatAnalysisNumber(overhead.annualCapacity,2)} MW`}</span><strong>${overhead.coefficientA===null?'—':`${overheadMoney(overhead.coefficientA)} / MW`}</strong></dd></div></dl></article>
       <article><h3>Project Overhead</h3><dl><div><dt>Current Project Capacity</dt><dd>${overhead.projectCapacity===null?'—':`${formatAnalysisNumber(overhead.projectCapacity,3)} MWp`}</dd></div><div><dt>Project Constant Overhead</dt><dd><span>${overhead.projectCapacity===null?'—':formatAnalysisNumber(overhead.projectCapacity,3)} × ${overhead.coefficientA===null?'—':`${overheadMoney(overhead.coefficientA)} / MWp`}</span><strong>${overheadMoney(overhead.constantOverhead)}</strong></dd></div></dl></article>
@@ -1280,24 +1373,25 @@ function renderFastenerPackaging(){
   wireAnalysisBackButton();
 }
 function analysisHomeIcon(page){
-  const paths={steel:'<path d="M4 6h16M6 6v12m12-12v12M4 18h16M8 10h8m-8 4h8"/>',electrical:'<path d="m13 2-7 12h6l-1 8 7-12h-6l1-8Z"/>',major:'<circle cx="12" cy="12" r="4"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M19 5l-2 2M7 17l-2 2"/>',fasteners:'<path d="m8 3 3 3-5 5-3-3 5-5Zm8 10 5 5-3 3-5-5m-5-5 5 5m-2-8 5 5"/>',personnel:'<circle cx="9" cy="8" r="3"/><circle cx="17" cy="10" r="2"/><path d="M3 20v-2a6 6 0 0 1 12 0v2m0-6a5 5 0 0 1 6 4v2"/>',total:'<path d="M6 5h12M8 9l-3 3 3 3m8-6 3 3-3 3M6 19h12"/>',packaging:'<path d="m3 7 9-4 9 4-9 4-9-4Zm0 0v10l9 4 9-4V7m-9 4v10"/>',logistics:'<path d="M3 7h11v10H3zM14 10h4l3 3v4h-7M7 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm10 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/>'};
+  const paths={steel:'<path d="M4 6h16M6 6v12m12-12v12M4 18h16M8 10h8m-8 4h8"/>',electrical:'<path d="m13 2-7 12h6l-1 8 7-12h-6l1-8Z"/>',major:'<circle cx="12" cy="12" r="4"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M19 5l-2 2M7 17l-2 2"/>',fasteners:'<path d="m8 3 3 3-5 5-3-3 5-5Zm8 10 5 5-3 3-5-5m-5-5 5 5m-2-8 5 5"/>',personnel:'<circle cx="9" cy="8" r="3"/><circle cx="17" cy="10" r="2"/><path d="M3 20v-2a6 6 0 0 1 12 0v2m0-6a5 5 0 0 1 6 4v2"/>',total:'<path d="M6 5h12M8 9l-3 3 3 3m8-6 3 3-3 3M6 19h12"/>',result:'<path d="M4 19h16M6 16l4-5 3 2 5-7M16 6h2v2"/>',packaging:'<path d="m3 7 9-4 9 4-9 4-9-4Zm0 0v10l9 4 9-4V7m-9 4v10"/>',logistics:'<path d="M3 7h11v10H3zM14 10h4l3 3v4h-7M7 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm10 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/>'};
   return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[page]||paths.total}</svg>`;
 }
 function analysisHomeSummary(totals,hasGaps=false){
   const text=analysisCurrencyText(totals,'');return text|| (hasGaps?'Prices required':'0.00');
 }
 function renderAnalysisHome(){
-  const root=document.getElementById('tabAnalysis');if(!root)return;const total=buildTotalCostData(),packages=buildFastenerPackagingData(),logistics=buildLogisticsData(),finalCost=buildFinalCostData(total,logistics),personnel=total.personnel;
+  const root=document.getElementById('tabAnalysis');if(!root)return;const total=buildTotalCostData(),packages=buildFastenerPackagingData(),logistics=buildLogisticsData(),finalCost=buildFinalCostData(total,logistics),personnel=total.personnel,result=buildResultAnalysisData();
   const cards=[
     ...analysisCommercialPages().map(page=>({page,title:ANALYSIS_ITEM_PAGE_CONFIG[page].title,description:ANALYSIS_ITEM_PAGE_CONFIG[page].subtitle,summary:supplierCostSummaryText(buildSupplierCostData(page))})),
     {page:'total',title:'Overhead & Final Price',description:'Project overhead, subtotal, final VAT, and final price.',summary:finalCost.finalCostIncludingVat===null?'Configuration required':overheadMoney(finalCost.finalCostIncludingVat)},
     {page:'logistics',title:'Logistics',description:'Container-based external and internal logistics by shipment.',summary:logistics.status==='loading'||logistics.status==='idle'?'Loading logistics':commercialCurrencyText(logistics.grandTotals,logistics.complete?'0.00':'Configuration required')},
     {page:'personnel',title:'Personnel Costs',description:'Read-only monthly, yearly, and per-MW Personnel cost allocation.',summary:personnel.status==='loading'||personnel.status==='idle'?'Loading Personnel costs':personnel.complete?overheadMoney(personnel.projectPersonnelCost):'Configuration required'},
     {page:'packaging',title:'Fastener Packaging',description:'Installation kits for eight connection sections.',summary:`${packages.length} installation sections`},
+    {page:'result',title:'Result',description:'Landed material, Personnel, Overhead, Contingency, Margin, VAT, and final price.',summary:result.complete?resultMoney(result.finalPrice):'Configuration required'},
   ];
   root.innerHTML=`<div class="analysis-home-header"><h2 class="table-title">Project Cost Analysis</h2><p class="table-subtitle">Choose an analysis area for the active project.</p></div><div class="analysis-home-grid">${cards.map(card=>`<button class="analysis-home-card" type="button" data-analysis-page="${card.page}"><span class="analysis-home-icon">${analysisHomeIcon(card.page)}</span><span class="analysis-home-copy"><strong>${escapeHtml(card.title)}</strong><span>${escapeHtml(card.description)}</span><em>${escapeHtml(card.summary)}</em></span><span class="analysis-home-arrow" aria-hidden="true">›</span></button>`).join('')}</div>`;
   const grid=root.querySelector('.analysis-home-grid'),buttons=new Map([...grid.children].map(button=>[button.dataset.analysisPage,button]));grid.classList.add('analysis-home-sections');grid.replaceChildren();
-  for(const [title,pages] of [['Steel Structure',['posts','substructure']],['Major Components',['slew_drive','bearing']],['Electrical',['pv_module','limit_switch','soltrk','junction_box']],['Fasteners',['fasteners']],['Logistics',['logistics']],['Personnel',['personnel']],['Summary',['total','packaging']]]){
+  for(const [title,pages] of [['Steel Structure',['posts','substructure']],['Major Components',['slew_drive','bearing']],['Electrical',['electrical','pv_module','limit_switch','soltrk','junction_box']],['Fasteners',['fasteners']],['Logistics',['logistics']],['Personnel',['personnel']],['Summary',['total','packaging']],['Result',['result']]]){
     const section=document.createElement('section');section.className=`analysis-home-section ${pages.length>3?'analysis-home-section-wide':''}`;section.innerHTML=`<h3>${escapeHtml(title)}</h3><div class="analysis-home-grid"></div>`;const sectionGrid=section.querySelector('.analysis-home-grid');pages.forEach(page=>{if(buttons.has(page))sectionGrid.appendChild(buttons.get(page));});grid.appendChild(section);
   }
   root.querySelectorAll('[data-analysis-page]').forEach(button=>button.addEventListener('click',()=>{uiState.analysisPage=button.dataset.analysisPage;renderAnalysis();requestAnimationFrame(updateFixedHorizontalScroll);}));
@@ -1305,7 +1399,7 @@ function renderAnalysisHome(){
 function renderAnalysis(){
   const page=String(uiState.analysisPage||'home'),root=document.getElementById('tabAnalysis');
   ensureCommercialAnalysisData();ensureLogisticsData();ensureOverheadSettings();ensurePersonnelSettings();
-  if(analysisCommercialPages().includes(page))renderSupplierCostAnalysis(page);else if(page==='total')renderTotalCostAnalysis();else if(page==='packaging')renderFastenerPackaging();else if(page==='logistics')renderLogisticsAnalysis();else if(page==='personnel')renderPersonnelAnalysis();else{uiState.analysisPage='home';renderAnalysisHome();}
+  if(analysisCommercialPages().includes(page))renderSupplierCostAnalysis(page);else if(page==='total')renderTotalCostAnalysis();else if(page==='packaging')renderFastenerPackaging();else if(page==='logistics')renderLogisticsAnalysis();else if(page==='personnel')renderPersonnelAnalysis();else if(page==='result')renderResultAnalysis();else{uiState.analysisPage='home';renderAnalysisHome();}
   wireAnalysisTables(root);root?.querySelectorAll('[data-analysis-table]').forEach(refreshAnalysisTable);
 }
 
@@ -1439,4 +1533,4 @@ function getPartMasterItems(){
   return Object.freeze(items.sort((a,b)=>a.tag.localeCompare(b.tag)).slice());
 }
 
-window.LumaApp = Object.freeze({init:initApp,refreshAuthorization,refreshLogistics,refreshOverhead,refreshPersonnel,getPartMasterItems,getLogisticsCargoAmount,reloadPartMaster,getPartMaster:()=>partMaster,getActiveProject,getCalculation:()=>current,getCommercialSummary:()=>buildTotalCostData(),getLogisticsSummary:()=>buildLogisticsData(),getPersonnelSummary:()=>buildPersonnelCostData(),getFinalCostSummary:()=>buildFinalCostData(),markProjectDirty:()=>markDirty()});
+window.LumaApp = Object.freeze({init:initApp,refreshAuthorization,refreshLogistics,refreshOverhead,refreshPersonnel,getPartMasterItems,getLogisticsCargoAmount,reloadPartMaster,getPartMaster:()=>partMaster,getActiveProject,getCalculation:()=>current,getCommercialSummary:()=>buildTotalCostData(),getLogisticsSummary:()=>buildLogisticsData(),getPersonnelSummary:()=>buildPersonnelCostData(),getFinalCostSummary:()=>buildFinalCostData(),getResultSummary:()=>buildResultAnalysisData(),markProjectDirty:()=>markDirty()});

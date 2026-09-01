@@ -68,6 +68,14 @@ test('blank Margin is valid as zero and percentages are added rather than compou
   assert.ok(Math.abs(result.overhead.percentageAmount - 14000) < 1e-9);
 });
 
+test('Margin accepts both negative and positive percentages', () => {
+  const negative = calculator().buildResult(example({marginPercent: -10}));
+  const positive = calculator().buildResult(example({marginPercent: 10}));
+  assert.equal(negative.overhead.marginPercent, -10);
+  assert.equal(positive.overhead.marginPercent, 10);
+  assert.ok(negative.overhead.percentageAmount < positive.overhead.percentageAmount);
+});
+
 test('legacy blank commercial Contingency defaults to five without using BOM contingency', () => {
   const result = calculator().buildResult(example({commercialContingencyPercent: ''}));
   assert.equal(result.overhead.contingencyPercent, 5);

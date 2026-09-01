@@ -30,6 +30,7 @@ test('Part Master fields resolve the intended commercial leaf categories', () =>
     [{Category:'Steel Structure', Part:'Main Tube A'}, 'substructure'],
     [{Category:'Steel Structure', Part:'Limit Switch Holder'}, 'substructure'],
     [{Category:'Electrical', Part:'SOLTRK 3.0'}, 'soltrk'],
+    [{Category:'Electrical', Part:'Cable Gland'}, 'electrical'],
     [{Category:'Bearings', Part:'Bearing'}, 'bearing'],
     [{Category:'Fasteners / Junction Box', Part:'Bolt'}, 'fasteners'],
   ];

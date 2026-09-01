@@ -1399,6 +1399,88 @@ textarea:focus {
     text-align: center;
 }
 
+.logistics-form {
+    display: grid;
+    gap: 16px;
+}
+
+.logistics-form-frame {
+    min-width: 0;
+    padding: 16px 18px 18px;
+    border: 1px solid var(--border);
+    background: #fffaf3;
+}
+
+.logistics-form-frame legend {
+    padding: 0 8px;
+    color: var(--accent-dark);
+    font-size: 16px;
+    font-weight: 700;
+}
+
+.logistics-dynamic-route,
+.logistics-route-fields {
+    display: contents;
+}
+
+.logistics-route-fields[hidden] {
+    display: none;
+}
+
+.logistics-preview-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(150px, 1fr));
+    gap: 10px;
+}
+
+.logistics-preview-grid > div {
+    display: grid;
+    gap: 5px;
+    min-height: 74px;
+    padding: 11px;
+    border: 1px solid #efd4ad;
+    background: #fff;
+}
+
+.logistics-preview-grid span {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.logistics-preview-grid strong {
+    color: var(--accent-dark);
+    font-size: 15px;
+}
+
+.logistics-preview-message,
+.logistics-preview-warning {
+    margin: 0;
+    color: var(--muted);
+}
+
+.logistics-preview-warning {
+    margin-top: 10px;
+    color: #9b4c00;
+    font-weight: 700;
+}
+
+.logistics-route-choices {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 10px;
+    margin: 12px 0 16px;
+    padding: 14px;
+    border: 1px solid #efd4ad;
+    background: #fffaf3;
+}
+
+.logistics-route-choices label {
+    display: grid;
+    gap: 5px;
+    color: var(--accent-dark);
+    font-weight: 700;
+}
+
 .price-list-row {
     cursor: pointer;
 }
@@ -1442,13 +1524,32 @@ textarea:focus {
     gap: 7px;
 }
 
+.price-item-tools {
+    display: grid;
+    min-width: min(520px, 100%);
+    gap: 8px;
+}
+
+.price-item-tools label {
+    display: grid;
+    gap: 4px;
+    color: var(--text);
+    font-weight: 700;
+}
+
+.price-item-tools input {
+    width: 100%;
+    min-height: 36px;
+    padding: 6px 8px;
+}
+
 .price-item-picker select {
     min-width: 0;
     flex: 1;
 }
 
 .price-list-items-table {
-    min-width: 760px;
+    min-width: 1040px;
 }
 
 .price-list-items-table th:first-child,
@@ -1462,11 +1563,19 @@ textarea:focus {
     width: 120px;
 }
 
-.price-list-items-table th:nth-child(4) {
-    width: 90px;
+.price-list-items-table th:nth-child(3) {
+    width: 145px;
 }
 
 .price-list-items-table th:nth-child(5) {
+    width: 90px;
+}
+
+.price-list-items-table th:nth-child(6) {
+    width: 105px;
+}
+
+.price-list-items-table th:nth-child(7) {
     width: 150px;
 }
 
@@ -3649,6 +3758,10 @@ th.wrap {
 
     .price-item-picker {
         min-width: 0;
+    }
+
+    .logistics-preview-grid {
+        grid-template-columns: minmax(0, 1fr);
     }
 
     .main {

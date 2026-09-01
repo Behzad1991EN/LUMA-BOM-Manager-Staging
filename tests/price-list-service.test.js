@@ -148,6 +148,7 @@ test('migration enforces revision history, exact prices, active uniqueness, audi
 test('Part Master integration is exposed as read-only TAG metadata', () => {
   assert.match(APP_SOURCE, /function getPartMasterItems\(\)/);
   assert.match(APP_SOURCE, /tag,part:String\(record\?\.Part/);
+  assert.match(APP_SOURCE, /partNumber:String\(record\?\.\['Part Number'\]/);
   assert.match(APP_SOURCE, /description:String\(record\?\.Description/);
   assert.match(APP_SOURCE, /unit:String\(record\?\.Unit/);
   assert.match(APP_SOURCE, /category:String\(record\?\.Category/);
@@ -159,6 +160,11 @@ test('Administration exposes active Price Lists navigation and focused revision 
   assert.match(UI_SOURCE, /Duplicate Price List/);
   assert.match(UI_SOURCE, /Archive Price List/);
   assert.match(UI_SOURCE, /Select TAG from Part Master/);
+  assert.match(UI_SOURCE, /Search Part Master/);
+  assert.match(UI_SOURCE, /<th>Part Number<\/th>/);
+  assert.match(UI_SOURCE, /<th>Weight \(kg\)<\/th>/);
+  assert.match(UI_SOURCE, /item\.partNumber/);
+  assert.match(UI_SOURCE, /item\.weight/);
   assert.match(UI_SOURCE, /LumaCommercialCategories\.partMatchesCategory/);
   assert.match(UI_SOURCE, /Changing Category to/);
   assert.match(UI_SOURCE, /incompatible item\(s\) removed/);

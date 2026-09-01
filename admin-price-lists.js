@@ -14,6 +14,7 @@
     search: '',
     notice: null,
     editorItems: [],
+    itemSearch: '',
   };
 
   function escapeHtml(value) {
@@ -39,6 +40,7 @@
     state.search = '';
     state.notice = null;
     state.editorItems = [];
+    state.itemSearch = '';
   }
 
   function backButton(label) {
@@ -218,7 +220,12 @@
     if (!select) return;
     const category = state.root?.querySelector('#priceListForm')?.elements.category.value || '';
     const used = new Set(state.editorItems.map(item => item.tag.toLowerCase()));
-    const available = state.partMasterItems.filter(item => category && itemMatchesCategory(item, category) && !used.has(item.tag.toLowerCase()));
+    const query = state.itemSearch.trim().toLowerCase();
+    const available = state.partMasterItems.filter(item => {
+      if (!category || !itemMatchesCategory(item, category) || used.has(item.tag.toLowerCase())) return false;
+      if (!query) return true;
+      return `${item.tag} ${item.part || ''} ${item.partNumber || ''} ${item.description || ''} ${item.material || ''}`.toLowerCase().includes(query);
+    });
     const placeholder = category && !available.length ? 'No matching Part Master TAGs' : 'Select TAG from Part Master';
     select.innerHTML = `<option value="">${placeholder}</option>${available.map(item => `<option value="${escapeHtml(item.tag)}">${escapeHtml(`${item.tag} — ${item.description || item.category || 'Part Master item'}`)}</option>`).join('')}`;
     select.disabled = !category || !available.length;
@@ -227,8 +234,13 @@
   }
 
   function itemRowsHtml() {
-    if (!state.editorItems.length) return '<tr><td class="empty-table-message" colspan="6">No items added. Select a TAG from Part Master.</td></tr>';
-    return state.editorItems.map((item, index) => `<tr data-price-item-row="${index}"><td>${index + 1}</td><td><strong>${escapeHtml(item.tag)}</strong></td><td>${escapeHtml(item.description || '—')}</td><td>${escapeHtml(item.unit || '—')}</td><td><input type="text" inputmode="decimal" data-price-item-value="${index}" value="${escapeHtml(item.unit_price ?? '')}" placeholder="Missing"></td><td><button class="danger" type="button" data-price-item-remove="${index}" aria-label="Remove ${escapeHtml(item.tag)}">Remove</button></td></tr>`).join('');
+    if (!state.editorItems.length) return '<tr><td class="empty-table-message" colspan="8">No items added. Search and select a TAG from Part Master.</td></tr>';
+    return state.editorItems.map((item, index) => {
+      const master = masterItemForTag(item.tag);
+      const partNumber = item.partNumber || master?.partNumber || '';
+      const weight = item.weight ?? master?.weight ?? '';
+      return `<tr data-price-item-row="${index}"><td>${index + 1}</td><td><strong>${escapeHtml(item.tag)}</strong></td><td>${escapeHtml(partNumber || '—')}</td><td>${escapeHtml(item.description || master?.description || '—')}</td><td>${escapeHtml(item.unit || master?.unit || '—')}</td><td>${weight === '' || weight === null ? '—' : escapeHtml(weight)}</td><td><input type="text" inputmode="decimal" data-price-item-value="${index}" value="${escapeHtml(item.unit_price ?? '')}" placeholder="Missing"></td><td><button class="danger" type="button" data-price-item-remove="${index}" aria-label="Remove ${escapeHtml(item.tag)}">Remove</button></td></tr>`;
+    }).join('');
   }
 
   function renderItemsTable() {
@@ -248,7 +260,7 @@
     const item = state.partMasterItems.find(candidate => candidate.tag === picker.value);
     const category = state.root.querySelector('#priceListForm')?.elements.category.value || '';
     if (!item || !itemMatchesCategory(item, category)) return;
-    state.editorItems.push({tag: item.tag, description: item.description, unit: item.unit, unit_price: null, preserved:false});
+    state.editorItems.push({tag: item.tag, partNumber:item.partNumber, description: item.description, unit: item.unit, weight:item.weight, unit_price: null, preserved:false});
     renderItemsTable();
     renderItemPicker();
   }
@@ -286,7 +298,11 @@
     const duplicate = mode === 'duplicate';
     const supplierId = source?.supplier_id || state.suppliers.find(supplier => supplier.active !== false)?.id || '';
     const category = source?.category || supplierCategories(supplierId)[0] || '';
-    state.editorItems = (source?.price_list_items || []).map(item => ({tag: item.tag, description: item.description || '', unit: item.unit || '', unit_price: item.unit_price, preserved:editing}));
+    state.itemSearch = '';
+    state.editorItems = (source?.price_list_items || []).map(item => {
+      const master = masterItemForTag(item.tag);
+      return {tag:item.tag, partNumber:master?.partNumber || '', description:item.description || master?.description || '', unit:item.unit || master?.unit || '', weight:master?.weight ?? '', unit_price:item.unit_price, preserved:editing};
+    });
     const title = editing ? 'Edit Price List' : duplicate ? 'Duplicate Price List' : 'Add Price List';
     state.root.innerHTML = `
       <div class="admin-subpage-nav">${backButton('Back to Price Lists')}</div>
@@ -302,8 +318,8 @@
           <label class="supplier-form-field supplier-form-wide"><span>Notes</span><textarea name="notes" rows="3">${escapeHtml(source?.notes || '')}</textarea></label>
           <label class="supplier-active-check supplier-form-wide"><input name="active" type="checkbox" ${editing ? (source?.active ? 'checked' : '') : ''}><span>Active Price List</span></label>
         </div>
-        <section class="price-list-items-editor"><div class="price-list-items-header"><div><h3>Price List Items</h3><p>TAG, description, and unit come from the current Part Master. Blank Unit Price means missing; zero is preserved as zero.</p></div><div class="price-item-picker"><select data-price-item-picker></select><button type="button" data-price-item-add>Add Item</button></div></div>
-          <div class="table-wrap"><table class="price-list-items-table"><thead><tr><th>No.</th><th>TAG</th><th>Description</th><th>Unit</th><th>Unit Price</th><th></th></tr></thead><tbody id="priceListItemsBody">${itemRowsHtml()}</tbody></table></div>
+        <section class="price-list-items-editor"><div class="price-list-items-header"><div><h3>Price List Items</h3><p>TAG, Part Number, description, unit, and weight come from the current Part Master. Blank Unit Price means missing; zero is preserved as zero.</p></div><div class="price-item-tools"><label><span>Search Part Master</span><input type="search" data-price-item-search value="${escapeHtml(state.itemSearch)}" placeholder="TAG, Part Number, description..."></label><div class="price-item-picker"><select data-price-item-picker></select><button type="button" data-price-item-add>Add Item</button></div></div></div>
+          <div class="table-wrap"><table class="price-list-items-table"><thead><tr><th>No.</th><th>TAG</th><th>Part Number</th><th>Description</th><th>Unit</th><th>Weight (kg)</th><th>Unit Price</th><th></th></tr></thead><tbody id="priceListItemsBody">${itemRowsHtml()}</tbody></table></div>
         </section>
         <p id="priceListFormStatus" class="supplier-form-status" role="alert" aria-live="polite" hidden></p>
         <div class="supplier-form-actions"><button type="button" data-price-list-cancel>Cancel</button><button class="export" type="submit" data-price-list-save>${editing ? 'Save Changes' : 'Create Price List'}</button></div>
@@ -317,6 +333,7 @@
     state.root.querySelector('[data-price-list-back]').addEventListener('click', renderList);
     state.root.querySelector('[data-price-list-cancel]').addEventListener('click', renderList);
     state.root.querySelector('[data-price-item-add]').addEventListener('click', addSelectedPartMasterItem);
+    state.root.querySelector('[data-price-item-search]').addEventListener('input', event => { state.itemSearch = event.target.value; renderItemPicker(); });
     form.elements.supplier_id.addEventListener('change', () => {
       const previousSupplierId = form.dataset.previousSupplierId || '';
       const previousCategory = form.dataset.previousCategory || '';

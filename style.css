@@ -2506,6 +2506,61 @@ th.wrap {
     max-width: 980px;
 }
 
+.personnel-table-wrap {
+    width: 100%;
+    max-width: 920px;
+}
+
+.personnel-cost-table {
+    min-width: 720px;
+}
+
+.personnel-cost-table th:first-child,
+.personnel-cost-table td:first-child {
+    width: 48px;
+    text-align: center;
+}
+
+.personnel-cost-table tfoot th {
+    border-top: 2px solid var(--accent);
+    background: #fff0d8;
+    color: var(--accent-dark);
+}
+
+.personnel-cost-table tfoot th:first-child {
+    text-align: left;
+}
+
+.personnel-money-input,
+.personnel-target-input {
+    display: grid;
+    grid-template-columns: auto minmax(110px, 1fr);
+    align-items: center;
+    gap: 7px;
+}
+
+.personnel-money-input > span,
+.personnel-target-input > em {
+    color: var(--muted);
+    font-style: normal;
+    font-weight: 700;
+}
+
+.personnel-target-control {
+    max-width: 380px;
+}
+
+.personnel-target-input {
+    grid-template-columns: minmax(120px, 1fr) auto;
+}
+
+.personnel-total-row td {
+    border-top: 2px solid var(--accent);
+    background: #fff0d8;
+    color: var(--accent-dark);
+    font-weight: 800;
+}
+
 .overhead-input-with-unit {
     display: grid;
     grid-template-columns: auto minmax(120px, 1fr) auto;

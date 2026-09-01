@@ -265,6 +265,7 @@ function normalizeVatRate(value){return window.LumaCommercialCostCalculator.norm
 function normalizeCommercialContingencyPercent(value){return window.LumaCommercialCostCalculator.normalizeProjectPercentage(value,5);}
 function normalizePenaltyPercent(value){return window.LumaCommercialCostCalculator.normalizeProjectPercentage(value,'');}
 function normalizeMarginPercent(value){return window.LumaCommercialCostCalculator.normalizeProjectPercentage(value,'');}
+function normalizePersonnelYearlyTarget(value){if(value===undefined||value===null)return window.LumaPersonnelCostCalculator.DEFAULT_YEARLY_TARGET_MW;if(String(value).trim()==='')return '';const number=Number(value);return Number.isFinite(number)?number:'';}
 function normalizeAnalysisSupplierSelections(value){
   const source=value&&typeof value==='object'?value:{};
   return {posts:String(source.posts||''),substructure:String(source.substructure||source.steel||''),bearing:String(source.bearing||''),slew_drive:String(source.slew_drive||''),pv_module:String(source.pv_module||''),limit_switch:String(source.limit_switch||''),soltrk:String(source.soltrk||''),junction_box:String(source.junction_box||''),fasteners:String(source.fasteners||'')};
@@ -274,7 +275,7 @@ function makeProject(name='Sample Project',code='SAMPLE'){
     project_id:uuid(),project_name:name,project_code:code,
     inputs:clone(E.DEFAULT_INPUTS),tracker_quantities:E.defaultTrackerQuantities(),bearing_rules:{},manual_parts:E.defaultManualParts(),
     contingency_enabled:false,fastener_contingency_percent:0,bom_metadata_enabled:true,soltrk_version:'2.0',bom_overrides:{},equipment_quantity_overrides:{},
-    analysis_material_filter:'ALL',analysis_material_prices:{},analysis_item_prices:{},default_item_prices_initialized:true,analysis_steel_pricing_mode:'material',analysis_steel_part_prices:{},analysis_supplier_selections:normalizeAnalysisSupplierSelections(),commercial_contingency_percent:5,penalty_percent:'',margin_percent:'',vat_rate:0,quotation:window.LumaQuotation?.normalize?.()||{},
+    analysis_material_filter:'ALL',analysis_material_prices:{},analysis_item_prices:{},default_item_prices_initialized:true,analysis_steel_pricing_mode:'material',analysis_steel_part_prices:{},analysis_supplier_selections:normalizeAnalysisSupplierSelections(),personnel_yearly_target_mw:window.LumaPersonnelCostCalculator.DEFAULT_YEARLY_TARGET_MW,commercial_contingency_percent:5,penalty_percent:'',margin_percent:'',vat_rate:0,quotation:window.LumaQuotation?.normalize?.()||{},
     selected_logic_pv:'',selected_sketch_pv:'',is_dirty:false,
   };
 }
@@ -285,7 +286,7 @@ function makeDefaultWorkspace(){
 function serializeWorkspace(){
   const projects={};
   for(const [id,p] of Object.entries(workspace.projects)){
-    projects[id]={project_id:p.project_id,project_name:p.project_name,project_code:p.project_code,inputs:clone(p.inputs),tracker_quantities:clone(p.tracker_quantities),bearing_rules:clone(p.bearing_rules),manual_parts:clone(p.manual_parts),contingency_enabled:p.contingency_enabled===true,fastener_contingency_percent:Math.min(100,Math.max(0,E.asNumber(p.fastener_contingency_percent,0))),bom_metadata_enabled:p.bom_metadata_enabled!==false,soltrk_version:E.normalizeSoltrkVersion(p.soltrk_version),bom_overrides:clone(p.bom_overrides||{}),equipment_quantity_overrides:clone(p.equipment_quantity_overrides||{}),analysis_material_filter:p.analysis_material_filter||'ALL',analysis_material_prices:clone(p.analysis_material_prices||{}),analysis_item_prices:clone(p.analysis_item_prices||{}),default_item_prices_initialized:p.default_item_prices_initialized===true,analysis_steel_pricing_mode:normalizeSteelPricingMode(p.analysis_steel_pricing_mode),analysis_steel_part_prices:clone(p.analysis_steel_part_prices||{}),analysis_supplier_selections:normalizeAnalysisSupplierSelections(p.analysis_supplier_selections),commercial_contingency_percent:normalizeCommercialContingencyPercent(p.commercial_contingency_percent),penalty_percent:normalizePenaltyPercent(p.penalty_percent),margin_percent:normalizeMarginPercent(p.margin_percent),vat_rate:normalizeVatRate(p.vat_rate),quotation:clone(p.quotation||{}),selected_logic_pv:p.selected_logic_pv||'',selected_sketch_pv:p.selected_sketch_pv||''};
+    projects[id]={project_id:p.project_id,project_name:p.project_name,project_code:p.project_code,inputs:clone(p.inputs),tracker_quantities:clone(p.tracker_quantities),bearing_rules:clone(p.bearing_rules),manual_parts:clone(p.manual_parts),contingency_enabled:p.contingency_enabled===true,fastener_contingency_percent:Math.min(100,Math.max(0,E.asNumber(p.fastener_contingency_percent,0))),bom_metadata_enabled:p.bom_metadata_enabled!==false,soltrk_version:E.normalizeSoltrkVersion(p.soltrk_version),bom_overrides:clone(p.bom_overrides||{}),equipment_quantity_overrides:clone(p.equipment_quantity_overrides||{}),analysis_material_filter:p.analysis_material_filter||'ALL',analysis_material_prices:clone(p.analysis_material_prices||{}),analysis_item_prices:clone(p.analysis_item_prices||{}),default_item_prices_initialized:p.default_item_prices_initialized===true,analysis_steel_pricing_mode:normalizeSteelPricingMode(p.analysis_steel_pricing_mode),analysis_steel_part_prices:clone(p.analysis_steel_part_prices||{}),analysis_supplier_selections:normalizeAnalysisSupplierSelections(p.analysis_supplier_selections),personnel_yearly_target_mw:normalizePersonnelYearlyTarget(p.personnel_yearly_target_mw),commercial_contingency_percent:normalizeCommercialContingencyPercent(p.commercial_contingency_percent),penalty_percent:normalizePenaltyPercent(p.penalty_percent),margin_percent:normalizeMarginPercent(p.margin_percent),vat_rate:normalizeVatRate(p.vat_rate),quotation:clone(p.quotation||{}),selected_logic_pv:p.selected_logic_pv||'',selected_sketch_pv:p.selected_sketch_pv||''};
   }
   return {format_version:WORKSPACE_FORMAT_VERSION,workspace_name:workspace.workspace_name,active_project_id:workspace.active_project_id,projects,saved_at:formatDateTime(),application_version:APP_VERSION};
 }
@@ -334,7 +335,7 @@ function normalizeProject(raw,id){
     }
   }
   p.analysis_item_prices=savedItemPrices;p.default_item_prices_initialized=true;p._default_item_price_migrated=needsDefaultPriceMigration;
-  p.analysis_steel_pricing_mode=normalizeSteelPricingMode(raw?.analysis_steel_pricing_mode);p.analysis_steel_part_prices=normalizeAnalysisItemPrices(raw?.analysis_steel_part_prices);p.analysis_supplier_selections=normalizeAnalysisSupplierSelections(raw?.analysis_supplier_selections);p.commercial_contingency_percent=normalizeCommercialContingencyPercent(raw?.commercial_contingency_percent);p.penalty_percent=normalizePenaltyPercent(raw?.penalty_percent);p.margin_percent=normalizeMarginPercent(raw?.margin_percent);p.vat_rate=normalizeVatRate(raw?.vat_rate);
+  p.analysis_steel_pricing_mode=normalizeSteelPricingMode(raw?.analysis_steel_pricing_mode);p.analysis_steel_part_prices=normalizeAnalysisItemPrices(raw?.analysis_steel_part_prices);p.analysis_supplier_selections=normalizeAnalysisSupplierSelections(raw?.analysis_supplier_selections);p.personnel_yearly_target_mw=normalizePersonnelYearlyTarget(raw?.personnel_yearly_target_mw);p.commercial_contingency_percent=normalizeCommercialContingencyPercent(raw?.commercial_contingency_percent);p.penalty_percent=normalizePenaltyPercent(raw?.penalty_percent);p.margin_percent=normalizeMarginPercent(raw?.margin_percent);p.vat_rate=normalizeVatRate(raw?.vat_rate);
   p.quotation=window.LumaQuotation?.normalize?.(raw?.quotation)||clone(raw?.quotation||{});
   const legacyPrice=Number(raw?.analysis_price_per_kg);if(!Object.keys(p.analysis_material_prices).length&&p.analysis_material_filter!=='ALL'&&Number.isFinite(legacyPrice)&&legacyPrice>0)p.analysis_material_prices[p.analysis_material_filter]={material:p.analysis_material_filter,price_per_kg:legacyPrice,currency:isAnalysisCurrency(raw?.analysis_currency)?raw.analysis_currency:'USD'};
   p.selected_logic_pv=String(raw?.selected_logic_pv||'');p.selected_sketch_pv=String(raw?.selected_sketch_pv||'');p.is_dirty=false;
@@ -474,7 +475,7 @@ function selectProject(projectId){
 function resetCurrentProject(){
   const p=getActiveProject();if(!p)return;
   if(!confirm('Reset all inputs, tracker quantities, bearing rules, and manual parts for the current project?\n\nThis action cannot be undone after saving.'))return;
-  p.inputs=clone(E.DEFAULT_INPUTS);p.tracker_quantities=E.defaultTrackerQuantities();p.bearing_rules={};p.manual_parts=E.defaultManualParts();p.contingency_enabled=false;p.fastener_contingency_percent=0;p.bom_metadata_enabled=true;p.soltrk_version='2.0';p.bom_overrides={};p.equipment_quantity_overrides={};p.analysis_material_filter='ALL';p.analysis_material_prices={};p.analysis_item_prices={};p.default_item_prices_initialized=true;p.analysis_steel_pricing_mode='material';p.analysis_steel_part_prices={};p.analysis_supplier_selections=normalizeAnalysisSupplierSelections();p.commercial_contingency_percent=5;p.penalty_percent='';p.margin_percent='';p.vat_rate=0;p.quotation=window.LumaQuotation?.normalize?.()||{};p.selected_logic_pv='';p.selected_sketch_pv='';p.is_dirty=true;selectedBomRows.clear();customRuleSelectedKey=null;uiState.analysisPage='home';uiState.customRule={pv:'14',mode:'Symmetrical',quantity:'0',symmetrical_distance:'8320',semi_pair_count:3,asym_post_count:3,semi_pair_gaps:['8320','7350','6500','',''],asym_north_gaps:['8320','7350','6500','',''],asym_south_gaps:['8320','7350','6500','','']};renderAll(true);saveRecovery();
+  p.inputs=clone(E.DEFAULT_INPUTS);p.tracker_quantities=E.defaultTrackerQuantities();p.bearing_rules={};p.manual_parts=E.defaultManualParts();p.contingency_enabled=false;p.fastener_contingency_percent=0;p.bom_metadata_enabled=true;p.soltrk_version='2.0';p.bom_overrides={};p.equipment_quantity_overrides={};p.analysis_material_filter='ALL';p.analysis_material_prices={};p.analysis_item_prices={};p.default_item_prices_initialized=true;p.analysis_steel_pricing_mode='material';p.analysis_steel_part_prices={};p.analysis_supplier_selections=normalizeAnalysisSupplierSelections();p.personnel_yearly_target_mw=window.LumaPersonnelCostCalculator.DEFAULT_YEARLY_TARGET_MW;p.commercial_contingency_percent=5;p.penalty_percent='';p.margin_percent='';p.vat_rate=0;p.quotation=window.LumaQuotation?.normalize?.()||{};p.selected_logic_pv='';p.selected_sketch_pv='';p.is_dirty=true;selectedBomRows.clear();customRuleSelectedKey=null;uiState.analysisPage='home';uiState.customRule={pv:'14',mode:'Symmetrical',quantity:'0',symmetrical_distance:'8320',semi_pair_count:3,asym_post_count:3,semi_pair_gaps:['8320','7350','6500','',''],asym_north_gaps:['8320','7350','6500','',''],asym_south_gaps:['8320','7350','6500','','']};renderAll(true);saveRecovery();
 }
 function renderTabs(){
   const tabs=document.getElementById('tabs'),visibleTabs=window.LumaAuth?.isAdmin?.()?[...TABS,ADMINISTRATION_TAB]:TABS;
@@ -1058,6 +1059,10 @@ function ensureOverheadSettings(){
   const service=window.LumaOverheadService;if(!service)return;const status=service.snapshot().status;if(status!=='idle')return;
   void service.loadSettings().then(()=>{renderAnalysis();requestAnimationFrame(updateFixedHorizontalScroll);}).catch(()=>{renderAnalysis();requestAnimationFrame(updateFixedHorizontalScroll);});
 }
+function ensurePersonnelSettings(){
+  const service=window.LumaPersonnelService;if(!service)return;const status=service.snapshot().status;if(status!=='idle')return;
+  void service.loadSettings().then(()=>{renderAnalysis();requestAnimationFrame(updateFixedHorizontalScroll);}).catch(()=>{renderAnalysis();requestAnimationFrame(updateFixedHorizontalScroll);});
+}
 function commercialAnalysisRows(page){return (current?.bom?.rows||[]).filter(row=>analysisCategoryMatches(page,row));}
 function buildSupplierCostData(page){
   const p=getActiveProject(),supplierId=p?.analysis_supplier_selections?.[page]||'';
@@ -1179,12 +1184,25 @@ function renderMajorComponentsAnalysis(){
   root.innerHTML=`<div class="analysis-subpage-nav">${analysisBackButtonHtml()}</div><div class="analysis-title-row"><div><h2 class="table-title">${escapeHtml(config.title)}</h2><p class="table-subtitle">${escapeHtml(config.subtitle)}</p></div></div><div class="analysis-warning analysis-info">Supplier pricing is not connected here yet because this page combines three distinct commercial categories: Bearings, Slew Drive, and PV Module. No supplier or price is inferred.</div>${makeAnalysisTable(analysisProjectBomColumns(),rows)}`;
   wireAnalysisBackButton();
 }
+function buildPersonnelCostData(){
+  const project=getActiveProject(),state=window.LumaPersonnelService.snapshot(),calculation=window.LumaPersonnelCostCalculator.calculate({settings:state.settings,settingsStatus:state.status,yearlyTargetMw:project?.personnel_yearly_target_mw,projectCapacityMwp:current?.kpis?.totalPower});
+  return {...calculation,status:state.status,error:state.error};
+}
+function renderPersonnelAnalysis(){
+  const root=document.getElementById('tabAnalysis'),project=getActiveProject(),data=buildPersonnelCostData();if(!root||!project)return;
+  const rows=data.rows.map(row=>({Section:row.label,'Monthly Cost':row.monthlyCost===null?'—':overheadMoney(row.monthlyCost),'Yearly Cost (12 Months)':row.yearlyCost===null?'—':overheadMoney(row.yearlyCost),'Personnel Cost / MW':row.costPerMw===null?'—':`${overheadMoney(row.costPerMw)} / MW`}));
+  rows.push({Section:'PERSONNEL COST','Monthly Cost':data.totalMonthly===null?'—':overheadMoney(data.totalMonthly),'Yearly Cost (12 Months)':data.totalYearly===null?'—':overheadMoney(data.totalYearly),'Personnel Cost / MW':data.totalPerMw===null?'—':`${overheadMoney(data.totalPerMw)} / MW`});
+  const warningHtml=data.errors.length?`<div class="analysis-warning">${data.errors.map(error=>`<div>${escapeHtml(error)}</div>`).join('')}</div>`:'';
+  root.innerHTML=`<div class="analysis-subpage-nav">${analysisBackButtonHtml()}</div><div class="analysis-title-row"><div><h2 class="table-title">Personnel Costs</h2><p class="table-subtitle">Monthly costs are maintained by administrators. Yearly cost = Monthly Cost × 12; Personnel Cost / MW = Yearly Cost ÷ Yearly Target.</p></div></div><div class="analysis-controls personnel-target-control"><label class="${data.yearlyTargetMw===null||data.yearlyTargetMw<=0?'analysis-input-error':''}"><span>Yearly Target</span><span class="personnel-target-input"><input id="personnelYearlyTarget" type="number" min="0.000001" step="any" value="${escapeHtml(project.personnel_yearly_target_mw)}" required><em>MW</em></span>${data.yearlyTargetMw===null||data.yearlyTargetMw<=0?'<small>Yearly Target must be greater than zero.</small>':''}</label></div>${warningHtml}<div class="analysis-summary"><div class="analysis-card analysis-cost-card"><span>Total Yearly Personnel Cost</span><strong>${data.totalYearly===null?'—':overheadMoney(data.totalYearly)}</strong></div><div class="analysis-card analysis-cost-card"><span>Personnel Cost / MW</span><strong>${data.totalPerMw===null?'—':`${overheadMoney(data.totalPerMw)} / MW`}</strong></div><div class="analysis-card"><span>Current Project Capacity</span><strong>${data.projectCapacityMwp===null?'—':`${formatAnalysisNumber(data.projectCapacityMwp,3)} MWp`}</strong></div><div class="analysis-card analysis-cost-card"><span>Current Project Personnel Cost</span><strong>${data.projectPersonnelCost===null?'—':overheadMoney(data.projectPersonnelCost)}</strong></div></div><div class="analysis-warning analysis-info">All Personnel cost values below are read-only. Administrators can change Monthly Cost only in Administration → Personnel Costs.</div>${makeAnalysisTable(['Section','Monthly Cost','Yearly Cost (12 Months)','Personnel Cost / MW'],rows)}`;
+  wireAnalysisBackButton();root.querySelector('[data-analysis-table] tbody tr[data-analysis-row]:last-of-type')?.classList.add('personnel-total-row');document.getElementById('personnelYearlyTarget')?.addEventListener('change',event=>{project.personnel_yearly_target_mw=normalizePersonnelYearlyTarget(event.target.value);markDirty();renderAnalysis();requestAnimationFrame(updateFixedHorizontalScroll);});
+}
 function buildTotalCostData(){
   const supplierSections=Object.keys(window.LumaCommercialAnalysis.SECTION_CATEGORIES).map(page=>({page,data:buildSupplierCostData(page)}));
   const sections=supplierSections.map(({page,data})=>{const name=window.LumaCommercialAnalysis.SECTION_CATEGORIES[page],totals=data.selection?{[data.currency]:data.subtotal}:{},hasRequiredRows=data.rows.some(row=>row.quantity>0),status=data.selection?`${data.pricedRows.length} priced / ${data.missingPriceRows.length} missing — ${supplierOptionLabel(data.selection)} / ${data.selection.priceList.revision}`:(hasRequiredRows?(data.invalidSelection?'Saved supplier unavailable':'Supplier not selected'):'No BOM items');return {name,totals,status,gapCount:data.selection?data.missingPriceRows.length:(hasRequiredRows?1:0)};});
+  const personnel=buildPersonnelCostData();sections.push({name:'Personnel',totals:personnel.complete?{EUR:personnel.projectPersonnelCost}:{},status:personnel.complete?`${overheadMoney(personnel.totalPerMw)} / MW × ${formatAnalysisNumber(personnel.projectCapacityMwp,3)} MWp`:(personnel.errors[0]||'Personnel cost incomplete'),gapCount:personnel.complete?0:1});
   const grandTotals={};sections.forEach(section=>mergeAnalysisCurrencyTotals(grandTotals,section.totals));
   const gapCount=sections.reduce((sum,section)=>sum+section.gapCount,0);
-  return {sections,grandTotals,gapCount,rows:sections.map(section=>({Category:section.name,'Estimated Cost':commercialCurrencyText(section.totals),'Pricing Status':section.status}))};
+  return {sections,grandTotals,gapCount,personnel,rows:sections.map(section=>({Category:section.name,'Estimated Cost':commercialCurrencyText(section.totals),'Pricing Status':section.status}))};
 }
 function buildFinalCostData(baseData=buildTotalCostData(),logisticsData=buildLogisticsData()){
   const project=getActiveProject(),overheadState=window.LumaOverheadService.snapshot();
@@ -1258,31 +1276,32 @@ function renderFastenerPackaging(){
   wireAnalysisBackButton();
 }
 function analysisHomeIcon(page){
-  const paths={steel:'<path d="M4 6h16M6 6v12m12-12v12M4 18h16M8 10h8m-8 4h8"/>',electrical:'<path d="m13 2-7 12h6l-1 8 7-12h-6l1-8Z"/>',major:'<circle cx="12" cy="12" r="4"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M19 5l-2 2M7 17l-2 2"/>',fasteners:'<path d="m8 3 3 3-5 5-3-3 5-5Zm8 10 5 5-3 3-5-5m-5-5 5 5m-2-8 5 5"/>',total:'<path d="M6 5h12M8 9l-3 3 3 3m8-6 3 3-3 3M6 19h12"/>',packaging:'<path d="m3 7 9-4 9 4-9 4-9-4Zm0 0v10l9 4 9-4V7m-9 4v10"/>',logistics:'<path d="M3 7h11v10H3zM14 10h4l3 3v4h-7M7 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm10 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/>'};
+  const paths={steel:'<path d="M4 6h16M6 6v12m12-12v12M4 18h16M8 10h8m-8 4h8"/>',electrical:'<path d="m13 2-7 12h6l-1 8 7-12h-6l1-8Z"/>',major:'<circle cx="12" cy="12" r="4"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M19 5l-2 2M7 17l-2 2"/>',fasteners:'<path d="m8 3 3 3-5 5-3-3 5-5Zm8 10 5 5-3 3-5-5m-5-5 5 5m-2-8 5 5"/>',personnel:'<circle cx="9" cy="8" r="3"/><circle cx="17" cy="10" r="2"/><path d="M3 20v-2a6 6 0 0 1 12 0v2m0-6a5 5 0 0 1 6 4v2"/>',total:'<path d="M6 5h12M8 9l-3 3 3 3m8-6 3 3-3 3M6 19h12"/>',packaging:'<path d="m3 7 9-4 9 4-9 4-9-4Zm0 0v10l9 4 9-4V7m-9 4v10"/>',logistics:'<path d="M3 7h11v10H3zM14 10h4l3 3v4h-7M7 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm10 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/>'};
   return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[page]||paths.total}</svg>`;
 }
 function analysisHomeSummary(totals,hasGaps=false){
   const text=analysisCurrencyText(totals,'');return text|| (hasGaps?'Prices required':'0.00');
 }
 function renderAnalysisHome(){
-  const root=document.getElementById('tabAnalysis');if(!root)return;const total=buildTotalCostData(),packages=buildFastenerPackagingData(),logistics=buildLogisticsData(),finalCost=buildFinalCostData(total,logistics);
+  const root=document.getElementById('tabAnalysis');if(!root)return;const total=buildTotalCostData(),packages=buildFastenerPackagingData(),logistics=buildLogisticsData(),finalCost=buildFinalCostData(total,logistics),personnel=total.personnel;
   const cards=[
     ...Object.keys(window.LumaCommercialAnalysis.SECTION_CATEGORIES).map(page=>({page,title:ANALYSIS_ITEM_PAGE_CONFIG[page].title,description:ANALYSIS_ITEM_PAGE_CONFIG[page].subtitle,summary:supplierCostSummaryText(buildSupplierCostData(page))})),
     {page:'total',title:'Overhead & Final Price',description:'Project overhead, subtotal, final VAT, and final price.',summary:finalCost.finalCostIncludingVat===null?'Configuration required':overheadMoney(finalCost.finalCostIncludingVat)},
     {page:'logistics',title:'Logistics',description:'Container-based external and internal logistics by shipment.',summary:logistics.status==='loading'||logistics.status==='idle'?'Loading logistics':commercialCurrencyText(logistics.grandTotals,logistics.complete?'0.00':'Configuration required')},
+    {page:'personnel',title:'Personnel Costs',description:'Read-only monthly, yearly, and per-MW Personnel cost allocation.',summary:personnel.status==='loading'||personnel.status==='idle'?'Loading Personnel costs':personnel.complete?overheadMoney(personnel.projectPersonnelCost):'Configuration required'},
     {page:'packaging',title:'Fastener Packaging',description:'Installation kits for eight connection sections.',summary:`${packages.length} installation sections`},
   ];
   root.innerHTML=`<div class="analysis-home-header"><h2 class="table-title">Project Cost Analysis</h2><p class="table-subtitle">Choose an analysis area for the active project.</p></div><div class="analysis-home-grid">${cards.map(card=>`<button class="analysis-home-card" type="button" data-analysis-page="${card.page}"><span class="analysis-home-icon">${analysisHomeIcon(card.page)}</span><span class="analysis-home-copy"><strong>${escapeHtml(card.title)}</strong><span>${escapeHtml(card.description)}</span><em>${escapeHtml(card.summary)}</em></span><span class="analysis-home-arrow" aria-hidden="true">›</span></button>`).join('')}</div>`;
   const grid=root.querySelector('.analysis-home-grid'),buttons=new Map([...grid.children].map(button=>[button.dataset.analysisPage,button]));grid.classList.add('analysis-home-sections');grid.replaceChildren();
-  for(const [title,pages] of [['Steel Structure',['posts','substructure']],['Major Components',['slew_drive','bearing']],['Electrical',['pv_module','limit_switch','soltrk','junction_box']],['Fasteners',['fasteners']],['Logistics',['logistics']],['Summary',['total','packaging']]]){
+  for(const [title,pages] of [['Steel Structure',['posts','substructure']],['Major Components',['slew_drive','bearing']],['Electrical',['pv_module','limit_switch','soltrk','junction_box']],['Fasteners',['fasteners']],['Logistics',['logistics']],['Personnel',['personnel']],['Summary',['total','packaging']]]){
     const section=document.createElement('section');section.className=`analysis-home-section ${pages.length>3?'analysis-home-section-wide':''}`;section.innerHTML=`<h3>${escapeHtml(title)}</h3><div class="analysis-home-grid"></div>`;const sectionGrid=section.querySelector('.analysis-home-grid');pages.forEach(page=>{if(buttons.has(page))sectionGrid.appendChild(buttons.get(page));});grid.appendChild(section);
   }
   root.querySelectorAll('[data-analysis-page]').forEach(button=>button.addEventListener('click',()=>{uiState.analysisPage=button.dataset.analysisPage;renderAnalysis();requestAnimationFrame(updateFixedHorizontalScroll);}));
 }
 function renderAnalysis(){
   const page=String(uiState.analysisPage||'home'),root=document.getElementById('tabAnalysis');
-  ensureCommercialAnalysisData();ensureLogisticsData();ensureOverheadSettings();
-  if(Object.prototype.hasOwnProperty.call(window.LumaCommercialAnalysis.SECTION_CATEGORIES,page))renderSupplierCostAnalysis(page);else if(page==='total')renderTotalCostAnalysis();else if(page==='packaging')renderFastenerPackaging();else if(page==='logistics')renderLogisticsAnalysis();else{uiState.analysisPage='home';renderAnalysisHome();}
+  ensureCommercialAnalysisData();ensureLogisticsData();ensureOverheadSettings();ensurePersonnelSettings();
+  if(Object.prototype.hasOwnProperty.call(window.LumaCommercialAnalysis.SECTION_CATEGORIES,page))renderSupplierCostAnalysis(page);else if(page==='total')renderTotalCostAnalysis();else if(page==='packaging')renderFastenerPackaging();else if(page==='logistics')renderLogisticsAnalysis();else if(page==='personnel')renderPersonnelAnalysis();else{uiState.analysisPage='home';renderAnalysisHome();}
   wireAnalysisTables(root);root?.querySelectorAll('[data-analysis-table]').forEach(refreshAnalysisTable);
 }
 
@@ -1399,12 +1418,13 @@ function initApp(){
 
 function refreshAuthorization(){
   if(!appStarted)return;renderTabs();renderAdministration();
-  if(window.LumaAuth?.getSession?.()){void reloadPartMaster({force:true});window.LumaOverheadService?.invalidate?.();ensureOverheadSettings();}
+  if(window.LumaAuth?.getSession?.()){void reloadPartMaster({force:true});window.LumaOverheadService?.invalidate?.();window.LumaPersonnelService?.invalidate?.();ensureOverheadSettings();ensurePersonnelSettings();}
 }
 function refreshLogistics(){
   if(!appStarted)return;const loading=window.LumaLogisticsService?.loadActiveRates?.({force:true});if(loading)void loading.then(()=>renderAnalysis()).catch(()=>renderAnalysis());
 }
 function refreshOverhead(){if(appStarted)renderAnalysis();}
+function refreshPersonnel(){if(appStarted)renderAnalysis();}
 
 function getPartMasterItems(){
   const items=[],seen=new Set();
@@ -1415,4 +1435,4 @@ function getPartMasterItems(){
   return Object.freeze(items.sort((a,b)=>a.tag.localeCompare(b.tag)).slice());
 }
 
-window.LumaApp = Object.freeze({init:initApp,refreshAuthorization,refreshLogistics,refreshOverhead,getPartMasterItems,getLogisticsCargoAmount,reloadPartMaster,getPartMaster:()=>partMaster,getActiveProject,getCalculation:()=>current,getCommercialSummary:()=>buildTotalCostData(),getLogisticsSummary:()=>buildLogisticsData(),getFinalCostSummary:()=>buildFinalCostData(),markProjectDirty:()=>markDirty()});
+window.LumaApp = Object.freeze({init:initApp,refreshAuthorization,refreshLogistics,refreshOverhead,refreshPersonnel,getPartMasterItems,getLogisticsCargoAmount,reloadPartMaster,getPartMaster:()=>partMaster,getActiveProject,getCalculation:()=>current,getCommercialSummary:()=>buildTotalCostData(),getLogisticsSummary:()=>buildLogisticsData(),getPersonnelSummary:()=>buildPersonnelCostData(),getFinalCostSummary:()=>buildFinalCostData(),markProjectDirty:()=>markDirty()});

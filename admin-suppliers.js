@@ -36,6 +36,7 @@
     global.LumaAdminPartMaster?.reset?.();
     global.LumaAdminLogistics?.reset?.();
     global.LumaAdminOverhead?.reset?.();
+    global.LumaAdminPersonnel?.reset?.();
   }
 
   function backButton(label) {
@@ -82,6 +83,11 @@
           <span><strong>Overhead</strong><small>Configure KSI overhead constants and commercial overhead parameters.</small></span>
           <em aria-hidden="true">&rsaquo;</em>
         </button>
+        <button class="administration-card" type="button" data-admin-page="personnel">
+          <span class="administration-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="10" r="2"/><path d="M3 20v-2a6 6 0 0 1 12 0v2m0-6a5 5 0 0 1 6 4v2"/></svg></span>
+          <span><strong>Personnel Costs</strong><small>Manage monthly Personnel costs by company section.</small></span>
+          <em aria-hidden="true">&rsaquo;</em>
+        </button>
         <button class="administration-card coming-later" type="button" disabled>
           <span class="administration-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19h16M7 16V8m5 8V5m5 11v-6"/></svg></span>
           <span><strong>CAT</strong><small>Coming later</small></span>
@@ -102,6 +108,7 @@
     state.root.querySelector('[data-admin-page="quotation-settings"]').addEventListener('click', () => global.LumaQuotation?.openSettings?.(state.root, renderHome));
     state.root.querySelector('[data-admin-page="logistics"]').addEventListener('click', () => global.LumaAdminLogistics.open(state.root, renderHome));
     state.root.querySelector('[data-admin-page="overhead"]').addEventListener('click', () => global.LumaAdminOverhead.open(state.root, renderHome));
+    state.root.querySelector('[data-admin-page="personnel"]').addEventListener('click', () => global.LumaAdminPersonnel.open(state.root, renderHome));
   }
 
   function renderSupplierLoading(message = 'Loading suppliers...') {

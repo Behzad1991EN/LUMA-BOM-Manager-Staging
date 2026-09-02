@@ -167,3 +167,22 @@ test('Part Master editor exists only inside Administration and supports deactiva
   assert.match(admin, /label:'Weight \(kg\)'/);
   assert.doesNotMatch(admin, /\.delete\(/);
 });
+
+test('Part Master add and edit form uses organized responsive field sections', () => {
+  const html = read('index.html');
+  const admin = read('admin-part-master.js');
+  const styles = read('style.css');
+  for (const heading of ['Part Identification', 'Material and Calculation Data', 'Post and Foundation Details', 'Record Status']) {
+    assert.match(admin, new RegExp(heading));
+  }
+  assert.match(admin, /class="pm-form-field/);
+  assert.match(admin, /class="pm-form-grid pm-form-grid-three"/);
+  assert.match(admin, /class="pm-post-fields" data-pm-post-fields/);
+  assert.match(admin, /class="part-master-form-actions"/);
+  assert.match(styles, /\.part-master-form-shell/);
+  assert.match(styles, /\.pm-form-grid-three/);
+  assert.match(styles, /\.pm-post-fields\[hidden\]/);
+  assert.match(styles, /@media \(max-width: 700px\)/);
+  assert.match(html, /style\.css\?v=20260902-part-master-form/);
+  assert.match(html, /admin-part-master\.js\?v=20260902-part-master-form/);
+});

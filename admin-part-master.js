@@ -22,7 +22,8 @@
   ]);
   const state = {root:null, back:null, rows:[], selected:null, search:'', filters:{}, sortKey:'TAG', sortDirection:'asc'};
   const esc = value => String(value ?? '').replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
-  const field = (label, key, value='', type='text', extra='') => `<label>${esc(label)}<input data-pm-field="${esc(key)}" type="${type}" value="${esc(value)}" ${extra}></label>`;
+  const field = (label, key, value='', type='text', extra='', className='') => `<label class="pm-form-field ${esc(className)}"><span>${esc(label)}</span><input data-pm-field="${esc(key)}" type="${type}" value="${esc(value)}" ${extra}></label>`;
+  const textareaField = (label, key, value='', className='') => `<label class="pm-form-field ${esc(className)}"><span>${esc(label)}</span><textarea data-pm-field="${esc(key)}" rows="3">${esc(value)}</textarea></label>`;
 
   function selectedRow() { return state.rows.find(row => row.id === state.selected) || null; }
   function cellValue(row, key) { return key === 'Active' ? (row.Active === false ? 'Inactive' : 'Active') : row[key] ?? ''; }
@@ -172,15 +173,51 @@
   function renderForm(record) {
     const value = record || {Active:true};
     const isPost = !!value['Post Kind'];
-    shell(`<div class="supplier-form-header"><h2 class="table-title">${record ? 'Edit' : 'Add'} Part Master Record</h2><p class="table-subtitle">${record ? 'Update the selected authoritative Part Master record.' : 'Create an authoritative engineering Part Master record.'}</p></div><div class="supplier-form-grid">
-      ${field('TAG', 'TAG', value.TAG)}${field('Part', 'Part', value.Part)}${field('Description', 'Description', value.Description)}${field('Part Number', 'Part Number', value['Part Number'])}${field('Category', 'Category', value.Category)}${field('Unit', 'Unit', value.Unit)}${field('Material', 'Material', value.Material)}${field('Weight (kg)', 'Weight', value.Weight, 'number', 'step="any"')}${field('Calculation Note', 'Calculation Note', value['Calculation Note'])}
-      <label>Post Kind<select data-pm-field="Post Kind"><option value="">Not a post</option>${['Main Post', 'Bearing Post'].map(option => `<option ${value['Post Kind'] === option ? 'selected' : ''}>${option}</option>`).join('')}</select></label>
-      <div class="pm-post-fields" data-pm-post-fields ${isPost ? '' : 'hidden'}>
-        <label>Foundation Method<select data-pm-field="Foundation Method"><option value=""></option>${['Ramming', 'Foundation'].map(option => `<option ${value['Foundation Method'] === option ? 'selected' : ''}>${option}</option>`).join('')}</select></label>
-        ${field('Foundation Depth (mm)', 'Foundation Depth mm', value['Foundation Depth mm'], 'number', 'min="1" step="1"')}${field('Profile Type', 'Profile Type', value['Profile Type'])}${field('Profile Details', 'Profile Details', value['Profile Details'])}${field('Overall Length (mm)', 'Overall Length mm', value['Overall Length mm'], 'number', 'min="1" step="1"')}
+    shell(`<div class="part-master-form-shell">
+      <div class="supplier-form-header part-master-form-header"><div><h2 class="table-title">${record ? 'Edit' : 'Add'} Part Master Record</h2><p class="table-subtitle">${record ? 'Update the selected authoritative Part Master record.' : 'Create an authoritative engineering Part Master record.'}</p></div><span class="pm-record-badge">${record ? esc(value.TAG || 'Existing record') : 'New record'}</span></div>
+      <div class="part-master-form">
+        <section class="pm-form-section" aria-labelledby="pmIdentityHeading">
+          <div class="pm-form-section-heading"><span>01</span><div><h3 id="pmIdentityHeading">Part Identification</h3><p>Stable identifiers and the engineering description.</p></div></div>
+          <div class="pm-form-grid pm-form-grid-three">
+            ${field('TAG', 'TAG', value.TAG)}
+            ${field('Part', 'Part', value.Part)}
+            ${field('Part Number', 'Part Number', value['Part Number'])}
+            ${field('Category', 'Category', value.Category, 'text', '', 'pm-field-span-two')}
+            ${field('Unit', 'Unit', value.Unit)}
+            ${textareaField('Description', 'Description', value.Description, 'pm-field-wide')}
+          </div>
+        </section>
+
+        <section class="pm-form-section" aria-labelledby="pmMaterialHeading">
+          <div class="pm-form-section-heading"><span>02</span><div><h3 id="pmMaterialHeading">Material and Calculation Data</h3><p>Material properties and the authoritative BOM calculation note.</p></div></div>
+          <div class="pm-form-grid pm-form-grid-two">
+            ${field('Material', 'Material', value.Material)}
+            ${field('Weight (kg)', 'Weight', value.Weight, 'number', 'min="0" step="any"')}
+            ${textareaField('Calculation Note', 'Calculation Note', value['Calculation Note'], 'pm-field-wide')}
+          </div>
+        </section>
+
+        <section class="pm-form-section pm-post-section" aria-labelledby="pmPostHeading">
+          <div class="pm-form-section-heading"><span>03</span><div><h3 id="pmPostHeading">Post and Foundation Details</h3><p>Select a post type to maintain its foundation and profile configuration.</p></div></div>
+          <div class="pm-form-grid pm-form-grid-three">
+            <label class="pm-form-field"><span>Post Kind</span><select data-pm-field="Post Kind"><option value="">Not a post</option>${['Main Post', 'Bearing Post'].map(option => `<option ${value['Post Kind'] === option ? 'selected' : ''}>${option}</option>`).join('')}</select></label>
+          </div>
+          <div class="pm-post-fields" data-pm-post-fields ${isPost ? '' : 'hidden'}>
+            <label class="pm-form-field"><span>Foundation Method</span><select data-pm-field="Foundation Method"><option value="">Select method</option>${['Ramming', 'Foundation'].map(option => `<option ${value['Foundation Method'] === option ? 'selected' : ''}>${option}</option>`).join('')}</select></label>
+            ${field('Foundation Depth (mm)', 'Foundation Depth mm', value['Foundation Depth mm'], 'number', 'min="1" step="1"')}
+            ${field('Overall Length (mm)', 'Overall Length mm', value['Overall Length mm'], 'number', 'min="1" step="1"')}
+            ${field('Profile Type', 'Profile Type', value['Profile Type'])}
+            ${field('Profile Details', 'Profile Details', value['Profile Details'], 'text', '', 'pm-field-span-two')}
+          </div>
+        </section>
+
+        <section class="pm-record-status" aria-label="Record status">
+          <div><strong>Record Status</strong><span>Inactive parts remain stored but are unavailable for new project selections.</span></div>
+          <label class="supplier-checkbox"><input data-pm-active-checkbox type="checkbox" ${value.Active !== false ? 'checked' : ''}><span>Active Part Master record</span></label>
+        </section>
       </div>
-      <label class="supplier-checkbox"><input data-pm-active-checkbox type="checkbox" ${value.Active !== false ? 'checked' : ''}> Active</label></div>
-      <div class="modal-actions"><button data-pm-cancel>Cancel</button><button data-pm-save>Save Part</button></div>`);
+      <div class="part-master-form-actions"><button type="button" data-pm-cancel>Cancel</button><button class="export" type="button" data-pm-save>${record ? 'Save Changes' : 'Create Part'}</button></div>
+    </div>`);
     const postKind = state.root.querySelector('[data-pm-field="Post Kind"]');
     const postFields = state.root.querySelector('[data-pm-post-fields]');
     postKind.onchange = () => { postFields.hidden = !postKind.value; };

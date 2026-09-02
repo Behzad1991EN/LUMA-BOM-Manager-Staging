@@ -68,10 +68,9 @@
           <span><strong>Part Master</strong><small>Manage engineering Part Master records.</small></span>
           <em aria-hidden="true">&rsaquo;</em>
         </button>
-        <button class="administration-card" type="button" data-admin-page="quotation-settings">
+        <button class="administration-card coming-later" type="button" disabled>
           <span class="administration-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 3h9l3 3v15H6zM14 3v4h4M9 11h6M9 15h6"/></svg></span>
-          <span><strong>Quotation Settings</strong><small>Manage quotation defaults and company details.</small></span>
-          <em aria-hidden="true">&rsaquo;</em>
+          <span><strong>Quotation Settings</strong><small>Coming later</small></span>
         </button>
         <button class="administration-card" type="button" data-admin-page="logistics">
           <span class="administration-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7h11v10H3zM14 10h4l3 3v4h-7M7 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm10 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/></svg></span>
@@ -89,10 +88,6 @@
           <em aria-hidden="true">&rsaquo;</em>
         </button>
         <button class="administration-card coming-later" type="button" disabled>
-          <span class="administration-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19h16M7 16V8m5 8V5m5 11v-6"/></svg></span>
-          <span><strong>CAT</strong><small>Coming later</small></span>
-        </button>
-        <button class="administration-card coming-later" type="button" disabled>
           <span class="administration-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M14.5 9.5c-.6-.6-1.4-.9-2.5-.9-1.4 0-2.5.7-2.5 1.7 0 2.7 5 1.3 5 4 0 1-1.1 1.7-2.5 1.7-1.1 0-2-.3-2.7-1M12 6.5v11"/></svg></span>
           <span><strong>Custom Costs</strong><small>Coming later</small></span>
         </button>
@@ -105,7 +100,6 @@
     state.root.querySelector('[data-admin-page="suppliers"]').addEventListener('click', openSupplierList);
     state.root.querySelector('[data-admin-page="price-lists"]').addEventListener('click', () => global.LumaAdminPriceLists.open(state.root, renderHome));
     state.root.querySelector('[data-admin-page="part-master"]').addEventListener('click', () => global.LumaAdminPartMaster.open(state.root, renderHome));
-    state.root.querySelector('[data-admin-page="quotation-settings"]').addEventListener('click', () => global.LumaQuotation?.openSettings?.(state.root, renderHome));
     state.root.querySelector('[data-admin-page="logistics"]').addEventListener('click', () => global.LumaAdminLogistics.open(state.root, renderHome));
     state.root.querySelector('[data-admin-page="overhead"]').addEventListener('click', () => global.LumaAdminOverhead.open(state.root, renderHome));
     state.root.querySelector('[data-admin-page="personnel"]').addEventListener('click', () => global.LumaAdminPersonnel.open(state.root, renderHome));

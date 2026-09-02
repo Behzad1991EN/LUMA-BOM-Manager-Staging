@@ -132,6 +132,18 @@ test('workspace project payload persists stable supplier IDs for each mapped sec
   assert.match(APP_SOURCE, /p\.analysis_supplier_selections\[page\]=event\.target\.value/);
 });
 
+test('PV Module procurement defaults to excluded, persists per project, and gates all commercial totals', () => {
+  assert.match(APP_SOURCE, /analysis_pv_module_included:false/);
+  assert.match(APP_SOURCE, /analysis_pv_module_included:isPvModuleIncluded\(p\)/);
+  assert.match(APP_SOURCE, /analysis_pv_module_included=raw\?\.analysis_pv_module_included===true/);
+  assert.match(APP_SOURCE, /function isAnalysisSectionIncluded\(page,project=getActiveProject\(\)\)/);
+  assert.match(APP_SOURCE, /isAnalysisSectionIncluded\(page,project\)\?\{page,data:buildSupplierCostData\(page\),excluded:false\}:\{page,data:null,excluded:true\}/);
+  assert.match(APP_SOURCE, /data=included\?buildSupplierCostData\(page\):window\.LumaCommercialAnalysis\.buildSection\(page,'',commercialAnalysisRows\(page\)\)/);
+  assert.match(APP_SOURCE, /if\(!isAnalysisSectionIncluded\(page\)\)\{excludedPages\.push\(page\);continue;\}/);
+  assert.match(APP_SOURCE, /PV Module cost excluded from the entire price calculation/);
+  assert.match(APP_SOURCE, /Quotation commercial total/);
+});
+
 test('a single eligible supplier is used automatically while several still require selection', () => {
   assert.match(APP_SOURCE, /if\(!supplierId&&data\.eligibleSuppliers\.length===1\)data=window\.LumaCommercialAnalysis\.buildSection/);
   assert.match(APP_SOURCE, /The selected \$\{data\.category\} Price List contains no saved unit prices/);
@@ -141,8 +153,9 @@ test('a single eligible supplier is used automatically while several still requi
 test('commercial runtime scripts use one cache-busting release token', () => {
   const indexSource = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   for (const script of ['price-list-service.js', 'commercial-categories.js', 'analysis-commercial.js', 'app.js']) {
-    assert.match(indexSource, new RegExp(`${script.replace('.', '\\.') }\\?v=20260901-posts-price-fix`));
+    assert.match(indexSource, new RegExp(`${script.replace('.', '\\.') }\\?v=20260902-substructure-columns`));
   }
+  assert.match(indexSource, /style\.css\?v=20260902-part-master-form/);
 });
 
 test('every Analysis table uses the shared numbered sortable and filterable table', () => {
@@ -158,7 +171,17 @@ test('every Analysis table uses the shared numbered sortable and filterable tabl
 test('BOM detail Analysis tables inherit all active Project BOM columns', () => {
   assert.match(APP_SOURCE, /function analysisProjectBomColumns\(extraColumns=\[\]\)/);
   assert.match(APP_SOURCE, /current\?\.bom\?\.columns\|\|\[\]/);
-  assert.match(APP_SOURCE, /analysisProjectBomColumns\(\['Supplier Unit Price','Price Currency','Calculated Total'\]\)/);
+  assert.match(APP_SOURCE, /analysisDetailBomColumns\(page,\['Supplier Unit Price','Price Currency','Calculated Total'\]\)/);
   assert.match(APP_SOURCE, /analysisProjectBomColumns\(\['Qty \/ Package','Packages','Required Qty'\]\)/);
   assert.match(APP_SOURCE, /analysisProjectBomRow\(item\.source/);
+});
+
+test('Substructure details omit post-only geometry while Posts retains it', () => {
+  for (const column of ['Post Kind','Foundation Method','Foundation Depth mm','Profile Type','Profile Details','Overall Length mm']) {
+    assert.match(APP_SOURCE, new RegExp(`'${column.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'`));
+  }
+  assert.match(APP_SOURCE, /function analysisDetailBomColumns\(page,extraColumns=\[\]\)/);
+  assert.match(APP_SOURCE, /if\(page!==\x27substructure\x27\)return columns/);
+  assert.match(APP_SOURCE, /columns\.filter\(column=>!postOnlyColumns\.has\(column\)\)/);
+  assert.match(APP_SOURCE, /analysisDetailBomColumns\(page,\['Price \/ Unit','Price Currency','Calculated Cost'\]\)/);
 });

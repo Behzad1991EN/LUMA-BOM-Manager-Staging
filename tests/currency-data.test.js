@@ -34,10 +34,14 @@ test('database constraints accept all current selectable currencies', () => {
 });
 
 test('Administration cards use one consistent icon-content-arrow structure', () => {
-  assert.equal((adminSource.match(/class="administration-card-icon"/g) || []).length, 9);
+  assert.equal((adminSource.match(/class="administration-card-icon"/g) || []).length, 8);
   assert.match(adminSource, /Manage engineering Part Master records/);
   assert.match(adminSource, /Manage container capacities and logistics rates/);
   assert.match(adminSource, /Manage monthly Personnel costs by company section/);
+  assert.doesNotMatch(adminSource, /<strong>CAT<\/strong>/);
+  assert.match(adminSource, /administration-card coming-later[^>]*disabled>[\s\S]*?<strong>Quotation Settings<\/strong><small>Coming later<\/small>/);
+  assert.doesNotMatch(adminSource, /data-admin-page="quotation-settings"/);
+  assert.doesNotMatch(adminSource, /openSettings/);
   assert.match(styleSource, /grid-auto-rows:\s*1fr/);
   assert.doesNotMatch(styleSource, /administration-card\.coming-later\s*\{[^}]*grid-template-columns/s);
 });

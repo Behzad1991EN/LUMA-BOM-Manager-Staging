@@ -2243,52 +2243,96 @@ th.wrap {
 
 .bom-controls {
     display: flex;
-    align-items: center;
     flex-wrap: wrap;
-    gap: 8px 14px;
-    padding: 8px 10px;
-    margin: 0 0 9px;
+    align-items: flex-end;
+    gap: 10px 14px;
+    padding: 14px;
+    margin: 14px 0 6px;
     border: 1px solid var(--border);
-    background: #FFF5E4;
+    border-radius: 14px;
+    background: #FFFAF2;
 }
 
 .bom-controls label {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-weight: 700;
-}
-
-.bom-controls input[type="checkbox"] {
-    min-height: auto;
-    width: 16px;
-    height: 16px;
-}
-
-.bom-controls input[type="number"] {
-    width: 82px;
-}
-
-.bom-controls select {
-    width: 116px;
-}
-
-.bom-controls > span {
+    display: grid;
+    gap: 5px;
+    width: 170px;
+    min-width: 170px;
     color: var(--muted);
-    font-size: 13px;
+    font-size: 12px;
+    font-weight: 800;
 }
 
-.bom-editable-cell {
-    background: #FFF5E4;
-    cursor: text;
-}
-
-.bom-cell-input {
+.bom-controls select,
+.bom-controls input[type="number"] {
     width: 100%;
-    min-width: 82px;
+    min-height: 38px;
+    padding: 7px 10px;
+    border: 1px solid #BBA995;
+    border-radius: 9px;
+    background: #FFF;
+    color: var(--text);
+}
+
+.bom-controls input[type="number"]:disabled {
+    background: #F1ECE6;
+    color: var(--muted);
+}
+
+.bom-controls .bom-check {
+    padding: 0;
     border: 0;
-    background: #FFF5E4;
-    text-align: center;
+    background: transparent;
+}
+
+.bom-check-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 38px;
+    padding: 7px 10px;
+    border: 1px solid #BBA995;
+    border-radius: 9px;
+    background: #FFF;
+    color: var(--text);
+}
+
+.bom-controls .bom-check input {
+    width: 17px;
+    height: 17px;
+    min-height: auto;
+    accent-color: var(--accent-dark);
+}
+
+.bom-control-note {
+    margin: 0 0 12px;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.bom-table tbody tr {
+    cursor: pointer;
+    transition: background-color .14s ease, color .14s ease;
+}
+
+.bom-table tbody tr:hover {
+    background: #FFF0D9;
+}
+
+.bom-table tbody tr:focus {
+    outline: 2px solid var(--accent-dark);
+    outline-offset: -2px;
+}
+
+.bom-table tbody tr.is-selected,
+.bom-table tbody tr.is-selected > td {
+    background: var(--accent) !important;
+    color: #FFF;
+}
+
+.bom-table tbody tr.is-selected > td {
+    border-color: #D47C0B;
 }
 
 
@@ -4398,17 +4442,18 @@ th.wrap {
 
     .bom-controls {
         display: grid;
-        grid-template-columns: minmax(0, 1fr);
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         align-items: stretch;
         padding: 10px;
     }
 
     .bom-controls label {
-        justify-content: space-between;
+        width: 100%;
+        min-width: 0;
         min-height: 40px;
     }
 
-    .bom-controls input[type="checkbox"] {
+    .bom-controls .bom-check input {
         width: 20px;
         height: 20px;
     }

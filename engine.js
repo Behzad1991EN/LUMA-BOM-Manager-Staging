@@ -736,6 +736,21 @@
     for(let index=0;index<remainder;index++) distributed[order[index%order.length].index]++;
     return Object.fromEntries(rows.map((row,index)=>[scheduleRowIdentity(row),distributed[index]]));
   }
+  function equipmentQuantityAllocation(project,rows=[]){
+    const activeRows=(Array.isArray(rows)?rows:[]).filter(row=>asInt(row?.['Number of Trackers'],0)>0);
+    const automaticSoltrk=activeRows.reduce((sum,row)=>sum+ceilHalf(asInt(row['Number of Trackers'])),0);
+    const automaticJunctionBox=activeRows.reduce((sum,row)=>sum+Math.floor(asInt(row['Number of Trackers'])/2),0);
+    const soltrkByPv=distributeEquipmentQuantities(project,activeRows,'soltrk',row=>ceilHalf(asInt(row['Number of Trackers'])));
+    const junctionBoxByPv=distributeEquipmentQuantities(project,activeRows,'junction_box',row=>Math.floor(asInt(row['Number of Trackers'])/2));
+    return {
+      automaticSoltrk,
+      automaticJunctionBox,
+      soltrk:Object.values(soltrkByPv).reduce((sum,value)=>sum+asInt(value),0),
+      junctionBox:Object.values(junctionBoxByPv).reduce((sum,value)=>sum+asInt(value),0),
+      soltrkByPv,
+      junctionBoxByPv,
+    };
+  }
   function contextEquipmentQty(context,key,row){ return asInt(context?.[`${key}ByPv`]?.[scheduleRowIdentity(row)],0); }
   function applyBomMetadata(row,calculatedItem,sourceRecord=null){
     const defaults=defaultBomMetadata(row,calculatedItem),source=sourceRecord&&typeof sourceRecord==='object'?sourceRecord:{};
@@ -840,11 +855,12 @@
     const rows=[];
     const errors=[];
     const notesByTag={},notesByPart={};
+    const equipmentAllocation=equipmentQuantityAllocation(project,selectedRows);
     const bomContext={
       soltrkVersion:normalizeSoltrkVersion(project?.soltrk_version),
       anemometer:getAnemometerSelection(project),
-      soltrkByPv:distributeEquipmentQuantities(project,selectedRows,'soltrk',row=>ceilHalf(asInt(row['Number of Trackers']))),
-      junctionBoxByPv:distributeEquipmentQuantities(project,selectedRows,'junction_box',row=>Math.floor(asInt(row['Number of Trackers'])/2)),
+      soltrkByPv:equipmentAllocation.soltrkByPv,
+      junctionBoxByPv:equipmentAllocation.junctionBoxByPv,
     };
 
     for(const [calculatedItem,formula,keywords,categoryFallback,note,unit='pcs'] of BOM_DEFINITIONS){
@@ -963,6 +979,6 @@
     getDesignInputs,calculateAutoPvModuleGap,getAnemometerSelection,cadBlocksAreAvailable,getBomModeText,getSpanLimits,estimateSpanCountForLength,
     calculateTrackerGeometry,getBearingRuleVariantsForPv,getBearingRuleForPv,getPositionsFromRule,classifyBearing,classifyBeamZoneForPosition,calculateEstimatedBearingPositions,calculateBearingLayoutForTracker,
     generateModuleRailPositionsForSide,closestRailIndicesAroundPosition,calculateModuleSupportPlatesForTracker,buildSchedule,buildBearingLayoutTable,buildModuleSupportLayoutTable,
-    recordIsFastener,itemIsFastener,recordIsValidForCalculatedItem,findPartMasterMatch,bomRowKey,normalizeSoltrkVersion,scheduleRowIdentity,buildProjectBom,buildPartMasterPreview,calculateProject,
+    recordIsFastener,itemIsFastener,recordIsValidForCalculatedItem,findPartMasterMatch,bomRowKey,normalizeSoltrkVersion,scheduleRowIdentity,equipmentQuantityAllocation,buildProjectBom,buildPartMasterPreview,calculateProject,
   };
 })(globalThis);

@@ -153,9 +153,9 @@ test('a single eligible supplier is used automatically while several still requi
 test('commercial runtime scripts use one cache-busting release token', () => {
   const indexSource = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   for (const script of ['price-list-service.js', 'commercial-categories.js', 'analysis-commercial.js', 'app.js']) {
-    assert.match(indexSource, new RegExp(`${script.replace('.', '\\.') }\\?v=20260902-substructure-columns`));
+    assert.match(indexSource, new RegExp(`${script.replace('.', '\\.') }\\?v=20260903-project-bom-controls`));
   }
-  assert.match(indexSource, /style\.css\?v=20260902-part-master-form/);
+  assert.match(indexSource, /style\.css\?v=20260903-project-bom-controls/);
 });
 
 test('every Analysis table uses the shared numbered sortable and filterable table', () => {

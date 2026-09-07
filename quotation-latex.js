@@ -38,6 +38,25 @@
       if (numeric === null) return '';
       return numeric.toLocaleString('de-DE', {minimumFractionDigits:0, maximumFractionDigits:maximumDigits});
     };
+    const displayValue = (value, maximumDigits = 2) => numberOrNull(value) === null ? String(value ?? '') : compact(value, maximumDigits);
+    const suppliedConfigurations = Array.isArray(model?.structureConfigurations) ? model.structureConfigurations : [];
+    const structureConfigurations = suppliedConfigurations.length ? suppliedConfigurations : [{
+      panels:values.panelsPerStructure ?? 'XX',
+      quantity:values.structureCount ?? 'XX',
+    }];
+    const configurationStartY = 220.82;
+    const configurationEndY = 375;
+    const configurationDetailLines = 11;
+    const configurationLineCount = structureConfigurations.length + configurationDetailLines;
+    const configurationLineStep = Math.min(13.83, (configurationEndY - configurationStartY) / Math.max(1, configurationLineCount - 1));
+    const configurationFontSize = Math.min(10.56, Math.max(8, configurationLineStep - 0.25));
+    const configurationDetailStartY = configurationStartY + structureConfigurations.length * configurationLineStep;
+    const structureRows = structureConfigurations.map((configuration, index) => {
+      const y = (configurationStartY + index * configurationLineStep).toFixed(3);
+      const panels = escapeLatex(displayValue(configuration?.panels));
+      const quantity = escapeLatex(displayValue(configuration?.quantity));
+      return `  \\PlaceConfigurationLine{${y}}{N. of structures with ${panels} panels: ${quantity}}%`;
+    }).join('\n');
     const date = String(model?.quotationDate || '');
     const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
     const currencyCode = String(model?.quotationCurrency || 'EUR');
@@ -72,7 +91,13 @@
       QFExtendedManworkRate:money(numberOrNull(values.extendedManworkRateWhole) ?? model?.manworkRate2),
     };
     const runtimeCommands = Object.entries(runtimeValues).map(([name, value]) => `\\newcommand{\\${name}}{${escapeLatex(value)}}`);
-    return [...fieldCommands, ...runtimeCommands].join('\n') + '\n';
+    const configurationCommands = [
+      `\\newcommand{\\QFConfigurationLineStep}{${configurationLineStep.toFixed(3)}}`,
+      `\\newcommand{\\QFConfigurationFontSize}{${configurationFontSize.toFixed(3)}}`,
+      `\\newcommand{\\QFConfigurationDetailStartY}{${configurationDetailStartY.toFixed(3)}}`,
+      `\\newcommand{\\QFStructureConfigurationRows}{%\n${structureRows}\n}`,
+    ];
+    return [...fieldCommands, ...runtimeCommands, ...configurationCommands].join('\n') + '\n';
   }
 
   const decimal = value => Number(value).toFixed(2).replace(/\.00$/, '');
@@ -113,7 +138,7 @@
 
   function overflowWarnings(model) {
     const values = model?.fields || {};
-    return registry.FIELDS.flatMap(definition => {
+    return registry.FIELDS.filter(definition => definition.overflowCheck !== false).flatMap(definition => {
       const value = `${definition.text.prefix}${values[definition.id] ?? definition.exampleValue}${definition.text.suffix}`;
       const minimumWidthMm = approximateWidthMm(definition, value, definition.text.minFontSizePt);
       return minimumWidthMm > definition.text.widthMm

@@ -62,3 +62,12 @@
 \newcommand{\QFPilePricePerMWp}{550,00}
 \newcommand{\QFInstallationManworkRate}{500,00}
 \newcommand{\QFExtendedManworkRate}{600,00}
+
+% Dynamic project-configuration layout. The application emits one
+% \PlaceConfigurationLine call for every distinct array panel count.
+\newcommand{\QFConfigurationLineStep}{13.830}
+\newcommand{\QFConfigurationFontSize}{10.560}
+\newcommand{\QFConfigurationDetailStartY}{234.650}
+\newcommand{\QFStructureConfigurationRows}{%
+  \PlaceConfigurationLine{220.820}{N. of structures with \QFPanelsPerStructure{} panels: \QFStructureCount}%
+}

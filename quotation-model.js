@@ -37,6 +37,22 @@
     return Number.isFinite(parsed) ? parsed : null;
   };
   const number = value => numberOrNull(value) ?? 0;
+  const roundUpToHundredthMetre = millimetres => Math.ceil(Math.max(0, number(millimetres)) / 10) / 100;
+
+  function structureConfigurations(activeRows, totalTrackers, moduleVariants) {
+    const quantities = new Map();
+    activeRows.forEach(row => {
+      const panels = numberOrNull(row['PV Modules per Tracker']);
+      const quantity = numberOrNull(row['Number of Trackers']);
+      if (panels === null || quantity === null || quantity <= 0) return;
+      quantities.set(panels, (quantities.get(panels) || 0) + quantity);
+    });
+    const configurations = [...quantities.entries()]
+      .sort(([left], [right]) => left - right)
+      .map(([panels, quantity]) => Object.freeze({panels, quantity}));
+    if (configurations.length || moduleVariants.length !== 1 || totalTrackers <= 0) return Object.freeze(configurations);
+    return Object.freeze([Object.freeze({panels:moduleVariants[0], quantity:totalTrackers})]);
+  }
 
   function normalize(value) {
     const source = value && typeof value === 'object' ? value : {};
@@ -70,9 +86,14 @@
     const kpis = analysis?.kpis || {};
     const quantityByTags = tags => bomRows.reduce((sum, row) => tags.includes(String(row.TAG || '').toLowerCase()) ? sum + number(row['Total Qty']) : sum, 0);
     const postRows = bomRows.filter(row => /mainpost|bearingpost/.test(String(row['Part Name'] || row.Part || '').toLowerCase().replace(/\s+/g, '')));
-    const pileCount = postRows.reduce((sum, row) => sum + number(row['Total Qty']), 0);
+    const bomPileCount = postRows.reduce((sum, row) => sum + number(row['Total Qty']), 0);
+    const hasCompletePileSchedule = activeRows.length > 0 && activeRows.every(row => numberOrNull(row['Number of Trackers']) !== null && numberOrNull(row['Bearing Posts / Tracker']) !== null);
+    const scheduledPileCount = activeRows.reduce((sum, row) => sum + number(row['Number of Trackers']) * (1 + number(row['Bearing Posts / Tracker'])), 0);
+    const pileCount = hasCompletePileSchedule ? scheduledPileCount : bomPileCount;
     const trackerLengthMm = Math.max(0, ...activeRows.map(row => number(row['Tracker Length (mm)'])));
+    const trackerLengthM = trackerLengthMm ? roundUpToHundredthMetre(trackerLengthMm) : null;
     const moduleVariants = [...new Set(activeRows.map(row => numberOrNull(row['PV Modules per Tracker'])).filter(value => value !== null))].sort((a, b) => a - b);
+    const configurations = structureConfigurations(activeRows, number(kpis.totalTrackers), moduleVariants);
     const projectMWp = number(kpis.totalPower);
     const currency = quotation.currency || quotationSettings.currency || 'EUR';
     const safeguardQuantity = quantityByTags(['k001405', 'k001406']);
@@ -92,7 +113,7 @@
       moduleWidthMm:numberOrNull(inputs.pv_module_width),
       moduleLengthMm:numberOrNull(inputs.pv_module_length),
       modulePowerWp:numberOrNull(inputs.pv_power),
-      trackerLengthM:trackerLengthMm ? trackerLengthMm / 1000 : null,
+      trackerLengthM,
       trackerHeightM:numberOrNull(inputs.tracker_height_m),
       foundationDepthM:numberOrNull(inputs.foundation_depth_mm) === null ? null : number(inputs.foundation_depth_mm) / 1000,
       maximumTrackingTilt:numberOrNull(inputs.max_tracking_tilt_deg),
@@ -127,13 +148,14 @@
       quotationVersion: quotation.revision,
       quotationDate: quotation.date,
       trackerCount: number(kpis.totalTrackers),
+      structureConfigurations:configurations,
       pileCount,
       moduleCount: number(kpis.totalModules),
       modulesPerTracker: moduleVariants.join(' / '),
       moduleWidthMm: numberOrNull(inputs.pv_module_width),
       moduleLengthMm: numberOrNull(inputs.pv_module_length),
       modulePowerWp: numberOrNull(inputs.pv_power),
-      trackerLengthM: trackerLengthMm ? trackerLengthMm / 1000 : null,
+      trackerLengthM,
       trackerHeightM: numberOrNull(inputs.tracker_height_m),
       foundationMethod: inputs.foundation_method || inputs.foundation_type || '',
       foundationDepthMm: numberOrNull(inputs.foundation_depth_mm),

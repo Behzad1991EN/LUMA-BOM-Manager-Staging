@@ -67,6 +67,38 @@ test('quotation model reads project, BOM, engineering, commercial, and customer 
   assert.equal(model.fieldSources.trackerOfferQuantity,'TBD');
 });
 
+test('quotation groups array types, totals every pile, and rounds the longest tracker upward to two decimals',()=>{
+  const window={};
+  const context=vm.createContext({window,Date,Number,String,Object,Array,Set,Map,Math});
+  vm.runInContext(read('currency-data.js'),context);
+  vm.runInContext(read('quotation-field-definitions.js'),context);
+  vm.runInContext(read('quotation-model.js'),context);
+  vm.runInContext(read('quotation-latex.js'),context);
+  const project={project_id:'p2',inputs:{},quotation:{quotation_number:'Q-2'}};
+  const calculation={
+    kpis:{totalPower:1,totalTrackers:9,totalModules:415},
+    active:[
+      {'PV Modules per Tracker':43,'Number of Trackers':2,'Bearing Posts / Tracker':4,'Tracker Length (mm)':63101},
+      {'PV Modules per Tracker':43,'Number of Trackers':3,'Bearing Posts / Tracker':5,'Tracker Length (mm)':63201},
+      {'PV Modules per Tracker':50,'Number of Trackers':4,'Bearing Posts / Tracker':6,'Tracker Length (mm)':62888},
+    ],
+    bom:{rows:[]},
+  };
+  const model=window.LumaQuotationModel.fromApplication(project,calculation,{grandTotals:{EUR:0},gapCount:0});
+  assert.deepEqual(JSON.parse(JSON.stringify(model.structureConfigurations)),[
+    {panels:43,quantity:5},
+    {panels:50,quantity:4},
+  ]);
+  assert.equal(model.pileCount,56);
+  assert.equal(model.fields.pileCount,'56');
+  assert.equal(model.trackerLengthM,63.21);
+  assert.equal(model.fields.trackerLengthM,'63.21');
+  const variables=window.LumaQuotationLatex.buildVariables(model);
+  assert.match(variables,/\\PlaceConfigurationLine\{220\.820\}\{N\. of structures with 43 panels: 5\}/);
+  assert.match(variables,/\\PlaceConfigurationLine\{233\.668\}\{N\. of structures with 50 panels: 4\}/);
+  assert.doesNotMatch(window.LumaQuotationLatex.overflowWarnings(model).join('\n'),/Tracker Length|Panels per Structure|Number of Structures|Number of Piles/);
+});
+
 test('quotation reads the complete parameterized LaTeX template and safely connects every field',()=>{
   const renderer=read('quotation-renderer.js'),registrySource=read('quotation-field-definitions.js'),latex=read('quotation-latex.js'),styles=read('style.css'),html=read('index.html'),master=read('LaTeX/LUMA Quotation-3-revised.tex'),defaults=read('LaTeX/quotation_variables.tex');
   const window={};const context=vm.createContext({window,String,Array,Object,Number,Map,Math});
@@ -107,6 +139,8 @@ test('quotation reads the complete parameterized LaTeX template and safely conne
   assert.match(master,/\\QFTrackerOfferQuantity/);
   assert.match(master,/\\QFQuotationTotal/);
   assert.match(master,/\\QFGeneralLayoutReference/);
+  assert.match(master,/\\QFStructureConfigurationRows/);
+  assert.match(master,/\\PlaceConfigurationDetailLine/);
   assert.match(master,/\\showplaceholdersfalse/);
   assert.match(master,/\\PlaceSourceValue/);
   assert.doesNotMatch(master,/QuotationPageOneOverlay|includepdf/);
@@ -115,12 +149,12 @@ test('quotation reads the complete parameterized LaTeX template and safely conne
   const usedCommands=new Set(master.match(/\\QF[A-Za-z]+/g)||[]),defaultCommands=new Set((defaults.match(/\\newcommand\{(\\QF[A-Za-z]+)\}/g)||[]).map(line=>line.match(/\\newcommand\{(\\QF[A-Za-z]+)\}/)[1]));
   assert.deepEqual([...usedCommands].filter(command=>!defaultCommands.has(command)),[]);
   assert.doesNotMatch(html,/docx-preview|pizzip|jszip/i);
-  assert.match(html,/quotation-model\.js\?v=20260907-parameterized-latex/);
-  assert.match(html,/quotation-field-definitions\.js\?v=20260907-parameterized-latex/);
-  assert.match(html,/quotation-latex\.js\?v=20260907-parameterized-latex/);
+  assert.match(html,/quotation-model\.js\?v=20260907-array-configuration/);
+  assert.match(html,/quotation-field-definitions\.js\?v=20260907-array-configuration/);
+  assert.match(html,/quotation-latex\.js\?v=20260907-array-configuration/);
   assert.match(html,/quotation\/compilers\/quotation-compiler\.js/);
   assert.match(html,/quotation\/compilers\/swiftlatex-compiler\.js/);
-  assert.match(html,/quotation-renderer\.js\?v=20260907-parameterized-latex/);
+  assert.match(html,/quotation-renderer\.js\?v=20260907-array-configuration/);
   assert.doesNotMatch(styles,/\.quotation-page\b|\.docx-wrapper/);
   assert.match(styles,/\.quotation-pdf-frame/);
   assert.match(styles,/\.quotation-field\s*\{[^}]*gap:\s*8px/s);

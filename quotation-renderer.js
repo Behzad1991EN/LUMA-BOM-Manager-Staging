@@ -1,15 +1,27 @@
 'use strict';
 
 (function initializeQuotationRenderer(global) {
-  const APPROVED_PDF_URL = 'quotation/assets/LUMA_ENG_static.pdf';
-  const MASTER_URL = 'quotation/LUMA_Quotation.tex';
-  const LAYOUT_URL = 'quotation/quotation-field-layout.tex';
+  const TEMPLATE_ROOT = 'LaTeX/';
+  const TEMPLATE_RELEASE = '20260907-parameterized-latex';
+  const templateUrl = path => `${TEMPLATE_ROOT}${path}?v=${TEMPLATE_RELEASE}`;
+  const TEMPLATE_PDF_URL = templateUrl('LUMA%20Quotation-3-revised.pdf');
+  const MASTER_URL = templateUrl('LUMA%20Quotation-3-revised.tex');
   const MAIN_FILE = 'LUMA_Quotation.tex';
+  const TEMPLATE_ASSETS = Object.freeze([
+    ['Picture/image4.png', templateUrl('Picture/image4.png')],
+    ['Picture/image7.png', templateUrl('Picture/image7.png')],
+    ['Picture/image8.png', templateUrl('Picture/image8.png')],
+    ['Original/source_media/image1.jpg', templateUrl('Original/source_media/image1.jpg')],
+    ['Original/source_media/image2.png', templateUrl('Original/source_media/image2.png')],
+    ['Original/source_media/image3.jpeg', templateUrl('Original/source_media/image3.jpeg')],
+    ['Original/source_media/image5.png', templateUrl('Original/source_media/image5.png')],
+    ['Original/source_media/image6.png', templateUrl('Original/source_media/image6.png')],
+  ]);
   const PDF_MIME = 'application/pdf';
   const rootState = new WeakMap();
   const progressTimers = new WeakMap();
   const activeObjectUrls = new Set();
-  let approvedPdfPromise = null;
+  let templatePdfPromise = null;
   let sourceFilesPromise = null;
 
   const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
@@ -21,31 +33,30 @@
     return type === 'text' ? response.text() : response.arrayBuffer();
   }
 
-  async function loadApprovedPdf() {
-    if (!approvedPdfPromise) approvedPdfPromise = fetchRequired(APPROVED_PDF_URL, 'binary')
+  async function loadTemplatePdf() {
+    if (!templatePdfPromise) templatePdfPromise = fetchRequired(TEMPLATE_PDF_URL, 'binary')
       .then(buffer => new Blob([buffer], {type:PDF_MIME}))
-      .catch(error => { approvedPdfPromise = null; throw error; });
-    return approvedPdfPromise;
+      .catch(error => { templatePdfPromise = null; throw error; });
+    return templatePdfPromise;
   }
 
   async function loadSourceFiles() {
     if (!sourceFilesPromise) sourceFilesPromise = Promise.all([
       fetchRequired(MASTER_URL, 'text'),
-      fetchRequired(LAYOUT_URL, 'text'),
-      loadApprovedPdf().then(blob => blob.arrayBuffer()),
-    ]).then(([master, layout, background]) => ({master, layout, background}))
+      ...TEMPLATE_ASSETS.map(([, url]) => fetchRequired(url, 'binary')),
+    ]).then(([master, ...assetBuffers]) => ({master, assetBuffers}))
       .catch(error => { sourceFilesPromise = null; throw error; });
     return sourceFilesPromise;
   }
 
-  async function compilerFiles(variables, model) {
+  async function compilerFiles(variables) {
     const source = await loadSourceFiles();
-    return new Map([
+    const files = new Map([
       [MAIN_FILE, source.master],
       ['quotation_variables.tex', variables],
-      ['quotation-field-layout.tex', global.LumaQuotationLatex.buildLayout(source.layout, model)],
-      ['assets/LUMA_ENG_static.pdf', new Uint8Array(source.background)],
     ]);
+    TEMPLATE_ASSETS.forEach(([target], index) => files.set(target, new Uint8Array(source.assetBuffers[index])));
+    return files;
   }
 
   function currentModel() {
@@ -54,7 +65,7 @@
   }
 
   function formHtml(quotation) {
-    const controls=[...global.LumaQuotationFields.primaryControls(),{label:'Currency',key:'currency',inputType:'currency'}];
+    const controls=[...global.LumaQuotationFields.primaryControls(),{label:'Revision',key:'revision',inputType:'text'},{label:'Currency',key:'currency',inputType:'currency'}];
     return controls.map(({label, key, inputType = 'text'}) => {
       if (inputType === 'title') return `<label class="quotation-field"><span>${escapeHtml(label)}</span><select data-quotation-field="${key}">${['Mr','Mrs','Ms','Dr','MR/MRs'].map(value => `<option value="${value}" ${quotation[key] === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label>`;
       if (inputType === 'currency') return `<label class="quotation-field"><span>${escapeHtml(label)}</span><select data-quotation-field="${key}">${global.LumaCurrencyData.OPTIONS.map(currency => `<option value="${currency.code}" ${quotation[key] === currency.code ? 'selected' : ''}>${escapeHtml(global.LumaCurrencyData.optionLabel(currency.code))}</option>`).join('')}</select></label>`;
@@ -62,12 +73,18 @@
     }).join('');
   }
 
-  function draftFieldsHtml(quotation) {
+  function draftFieldsHtml(quotation, model) {
     return [...global.LumaQuotationFields.draftGroups()].map(([group, definitions]) => `
       <details class="quotation-draft-group">
         <summary>${escapeHtml(group)} <span>${definitions.length} field${definitions.length === 1 ? '' : 's'}</span></summary>
         <div class="quotation-draft-grid">
-          ${definitions.map(definition => `<label class="quotation-field quotation-draft-field"><span>${escapeHtml(definition.label)} <small>Page ${definition.page} · source=TBD</small></span><input data-quotation-template-field="${definition.id}" type="text" value="${escapeHtml(quotation.template_fields?.[definition.id] ?? definition.exampleValue)}"></label>`).join('')}
+          ${definitions.map(definition => {
+            const override = global.LumaQuotationFields.templateOverrideValue(quotation, definition);
+            const automatic = model?.automaticFields?.[definition.id];
+            const source = automatic !== '' && automatic !== null && automatic !== undefined ? 'automatic from project' : 'manual quotation value';
+            const placeholder = automatic !== '' && automatic !== null && automatic !== undefined ? `Auto: ${automatic}` : definition.exampleValue;
+            return `<label class="quotation-field quotation-draft-field"><span>${escapeHtml(definition.label)} <small>Page ${definition.page} · ${escapeHtml(source)}</small></span><input data-quotation-template-field="${definition.id}" type="text" value="${escapeHtml(override)}" placeholder="${escapeHtml(placeholder)}"></label>`;
+          }).join('')}
         </div>
       </details>`).join('');
   }
@@ -172,10 +189,10 @@
     root.querySelector('[data-quotation-pdf]').src = `${url}#view=FitH`;
   }
 
-  async function showApprovedPreview(root) {
-    const blob = await loadApprovedPdf();
+  async function showTemplatePreview(root) {
+    const blob = await loadTemplatePdf();
     replacePreview(root, {blob, compiled:false, model:null, log:''});
-    setStatus(root, 'Approved quotation template ready. Select Refresh Quotation to generate the dynamic fields.');
+    setStatus(root, 'LaTeX quotation template ready. Select Refresh Quotation to apply the project parameters.');
   }
 
   async function generateAuthoritativePdf(model, onStatus) {
@@ -187,7 +204,7 @@
       throw error;
     }
     const variables = global.LumaQuotationLatex.buildVariables(model);
-    const files = await compilerFiles(variables, model);
+    const files = await compilerFiles(variables);
     const result = await global.LumaQuotationCompiler.compileQuotation(files, MAIN_FILE, {onStatus});
     return {...result, variables, compiled:true};
   }
@@ -291,6 +308,7 @@
     const project = global.LumaApp.getActiveProject();
     if (!project) return;
     project.quotation = global.LumaQuotationModel.normalize(project.quotation);
+    const model = currentModel();
     if (root.dataset.quotationProjectId === project.project_id && root.querySelector('[data-quotation-pdf]')) return;
     const previous = rootState.get(root);
     if (previous?.url) {
@@ -300,21 +318,21 @@
     rootState.delete(root);
     root.dataset.quotationProjectId = project.project_id;
     root.innerHTML = `<div class="quotation-shell">
-      <div class="quotation-heading"><h2 class="table-title">Quotation</h2><p class="table-subtitle">The approved 11-page PDF remains the quotation background.</p></div>
+      <div class="quotation-heading"><h2 class="table-title">Quotation</h2><p class="table-subtitle">The quotation is generated from the parameterized LaTeX template in the project’s LaTeX folder.</p></div>
       <section class="quotation-information" aria-labelledby="quotationInformationTitle">
         <h3 id="quotationInformationTitle">Quotation Information</h3>
         <div class="quotation-form-grid">${formHtml(project.quotation)}</div>
         <section class="quotation-draft-fields" aria-labelledby="quotationDraftFieldsTitle">
           <h3 id="quotationDraftFieldsTitle">Quotation Draft Fields</h3>
-          <p>Temporary editable values for highlighted template fields whose final LUMA source is still to be defined.</p>
-          ${draftFieldsHtml(project.quotation)}
+          <p>Blank fields use the automatic project value shown in the field. Enter a value only when the quotation needs an override.</p>
+          ${draftFieldsHtml(project.quotation, model)}
         </section>
         <div class="quotation-actions">
           <button type="button" data-quotation-action="refresh">Refresh Quotation</button>
           <button type="button" data-quotation-action="download">Save PDF</button>
           <button type="button" data-quotation-action="snapshot">Save Snapshot</button>
         </div>
-        <p class="quotation-status loading" data-quotation-status role="status" aria-live="polite">Loading approved quotation template...</p>
+        <p class="quotation-status loading" data-quotation-status role="status" aria-live="polite">Loading LaTeX quotation template...</p>
         <div class="quotation-progress" data-quotation-progress hidden>
           <div class="quotation-progress-copy"><strong data-quotation-progress-label>Preparing quotation files...</strong><span data-quotation-progress-elapsed>0 seconds</span></div>
           <div class="quotation-progress-track" data-quotation-progress-bar role="progressbar" aria-label="Quotation generation progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span data-quotation-progress-fill></span></div>
@@ -331,10 +349,10 @@
     root.querySelector('[data-quotation-action="refresh"]').addEventListener('click', () => void refresh(root));
     root.querySelector('[data-quotation-action="download"]').addEventListener('click', () => void downloadCurrent(root));
     root.querySelector('[data-quotation-action="snapshot"]').addEventListener('click', () => void saveSnapshot(root));
-    try { await showApprovedPreview(root); }
+    try { await showTemplatePreview(root); }
     catch (error) {
-      console.error('Approved quotation preview failed to load.', {message:error?.message});
-      setStatus(root, 'The approved quotation template could not be loaded.', 'error');
+      console.error('LaTeX quotation preview failed to load.', {message:error?.message});
+      setStatus(root, 'The LaTeX quotation template could not be loaded.', 'error');
     }
   }
 

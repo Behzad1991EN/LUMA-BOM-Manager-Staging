@@ -64,7 +64,8 @@
       erase(113.59,40.22,7.06,3.88,'peach'), text(113.56,43.22,7.05,10,{color:'000000',minFontSizePt:8}),
       {ambiguous:'The approved placeholder reads “kWp” in the Qty column; its future business meaning is not assigned.'}),
     field('trackerPricePerKwWhole', 4, 'Tracker Price €/kW — Whole Number', 'Offer', 'XXX',
-      erase(133.17,40.22,7.06,3.88,'peach'), text(140.10,43.22,7.00,11,{color:'000000',minFontSizePt:9,align:'right',anchor:'base east'})),
+      erase(133.17,40.22,7.06,3.88,'peach'), text(140.10,43.22,7.00,11,{color:'000000',minFontSizePt:9,align:'right',anchor:'base east'}),
+      {storageKey:'price_per_kw',inputType:'number'}),
     field('panelsPerStructure', 4, 'Panels per Structure', 'Project Configuration', 'XX',
       erase(66.32,73.91,3.88,4.94), text(70.20,77.79,3.85,11,{color:'595959',minFontSizePt:9,align:'right',anchor:'base east'})),
     field('structureCount', 4, 'Number of Structures', 'Project Configuration', 'XX',
@@ -118,8 +119,18 @@
 
   const byId = new Map(FIELDS.map(definition => [definition.id, definition]));
   const commandName = id => `QF${String(id).replace(/(^|[^a-z0-9]+)([a-z0-9])/gi, (_match, _separator, character) => character.toUpperCase())}`;
-  const storageValue = (quotation, definition) => {
-    if (definition.storageKey.startsWith('template_fields.')) return quotation.template_fields?.[definition.id] ?? definition.exampleValue;
+  const hasValue = value => value !== '' && value !== null && value !== undefined;
+  const templateOverrideValue = (quotation, definition) => {
+    const value = quotation?.template_fields?.[definition.id];
+    return hasValue(value) && String(value) !== String(definition.exampleValue) ? String(value) : '';
+  };
+  const storageValue = (quotation, definition, automaticValues = {}) => {
+    if (definition.storageKey.startsWith('template_fields.')) {
+      const override = templateOverrideValue(quotation, definition);
+      if (override) return override;
+      const automatic = automaticValues[definition.id];
+      return hasValue(automatic) ? automatic : definition.exampleValue;
+    }
     const raw = quotation[definition.storageKey];
     if (definition.valuePart) {
       const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(raw || ''));
@@ -128,8 +139,8 @@
     }
     return raw === '' || raw === null || raw === undefined ? definition.exampleValue : raw;
   };
-  const fieldValues = quotation => Object.freeze(Object.fromEntries(FIELDS.map(definition => [definition.id, String(storageValue(quotation || {}, definition))])));
-  const templateDefaults = () => Object.fromEntries(FIELDS.filter(definition => definition.storageKey.startsWith('template_fields.')).map(definition => [definition.id, definition.exampleValue]));
+  const fieldValues = (quotation, automaticValues = {}) => Object.freeze(Object.fromEntries(FIELDS.map(definition => [definition.id, String(storageValue(quotation || {}, definition, automaticValues))])));
+  const templateDefaults = () => Object.fromEntries(FIELDS.filter(definition => definition.storageKey.startsWith('template_fields.')).map(definition => [definition.id, '']));
   const primaryControls = () => {
     const seen = new Set();
     return FIELDS.filter(definition => !definition.storageKey.startsWith('template_fields.')).filter(definition => {
@@ -147,5 +158,5 @@
     return groups;
   };
 
-  global.LumaQuotationFields = Object.freeze({SOURCE_TBD, LAYOUT_DEBUG, FIELDS, get:id => byId.get(id), commandName, fieldValues, templateDefaults, primaryControls, draftGroups});
+  global.LumaQuotationFields = Object.freeze({SOURCE_TBD, LAYOUT_DEBUG, FIELDS, get:id => byId.get(id), commandName, fieldValues, templateDefaults, templateOverrideValue, primaryControls, draftGroups});
 })(window);

@@ -63,7 +63,7 @@
 
   function buildQuotationModel(project, bom, analysis, commercialData, quotationSettings = settings) {
     const quotation = normalize(project?.quotation);
-    const fields = fieldRegistry.fieldValues(quotation);
+    let fields = fieldRegistry.fieldValues(quotation);
     const inputs = project?.inputs || {};
     const bomRows = bom?.rows || [];
     const activeRows = analysis?.active || [];
@@ -83,9 +83,34 @@
     const commissioningUnitPrice = numberOrNull(quotationSettings.commissioning_price);
     const pricePerKw = numberOrNull(quotation.price_per_kw);
     const currencyTotal = numberOrNull(commercialData?.grandTotals?.[currency]);
+    const automaticFields = Object.freeze({
+      trackerOfferQuantity:projectMWp ? Math.round(projectMWp * 1000) : 0,
+      panelsPerStructure:moduleVariants.join(' / '),
+      structureCount:number(kpis.totalTrackers),
+      pileCount,
+      moduleCount:number(kpis.totalModules),
+      moduleWidthMm:numberOrNull(inputs.pv_module_width),
+      moduleLengthMm:numberOrNull(inputs.pv_module_length),
+      modulePowerWp:numberOrNull(inputs.pv_power),
+      trackerLengthM:trackerLengthMm ? trackerLengthMm / 1000 : null,
+      trackerHeightM:numberOrNull(inputs.tracker_height_m),
+      foundationDepthM:numberOrNull(inputs.foundation_depth_mm) === null ? null : number(inputs.foundation_depth_mm) / 1000,
+      maximumTrackingTilt:numberOrNull(inputs.max_tracking_tilt_deg),
+      groundClearanceM:numberOrNull(inputs.ground_clearance_m),
+      pitchDistance:numberOrNull(inputs.pitch_m),
+      safeguardQuantity,
+      monitoringQuantity,
+      commissioningPriceWhole:commissioningUnitPrice,
+      commissioningWorkingDays:numberOrNull(quotationSettings.technician_days),
+      pilePricePerMWpWhole:numberOrNull(quotationSettings.pile_supplement_per_mwp),
+      installationManworkRateWhole:numberOrNull(quotationSettings.manworks_installation_per_day),
+      extendedManworkRateWhole:numberOrNull(quotationSettings.manworks_extended_per_day),
+    });
+    fields = fieldRegistry.fieldValues(quotation, automaticFields);
 
     return Object.freeze({
       fields,
+      automaticFields,
       clientCompany: fields.clientCompany,
       clientTitle: fields.clientTitle,
       clientFirstName: fields.clientFirstName,

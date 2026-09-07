@@ -27,10 +27,52 @@
 
   function buildVariables(model) {
     const values = model?.fields || {};
-    return registry.FIELDS.map(definition => {
+    const fieldCommands = registry.FIELDS.map(definition => {
       const value = values[definition.id] ?? definition.exampleValue;
       return `\\newcommand{\\${registry.commandName(definition.id)}}{${escapeLatex(value)}}`;
-    }).join('\n') + '\n';
+    });
+    const numberOrNull = value => value === '' || value === null || value === undefined || !Number.isFinite(Number(value)) ? null : Number(value);
+    const money = value => numberOrNull(value) === null ? '' : european(value, 2);
+    const compact = (value, maximumDigits = 3) => {
+      const numeric = numberOrNull(value);
+      if (numeric === null) return '';
+      return numeric.toLocaleString('de-DE', {minimumFractionDigits:0, maximumFractionDigits:maximumDigits});
+    };
+    const date = String(model?.quotationDate || '');
+    const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+    const currencyCode = String(model?.quotationCurrency || 'EUR');
+    const currencySymbol = global.LumaCurrencyData?.symbol?.(currencyCode) || currencyCode;
+    const trackerPrice = numberOrNull(model?.pricePerKw) ?? numberOrNull(values.trackerPricePerKwWhole);
+    const trackerQuantity = numberOrNull(values.trackerOfferQuantity);
+    const safeguardQuantity = numberOrNull(values.safeguardQuantity);
+    const monitoringQuantity = numberOrNull(values.monitoringQuantity);
+    const commissioningPrice = numberOrNull(model?.commissioningUnitPrice) ?? numberOrNull(values.commissioningPriceWhole);
+    const runtimeValues = {
+      QFProjectMWp:compact(model?.projectMWp),
+      QFClientName:[model?.clientFirstName, model?.clientLastName].map(value => String(value || '').trim()).filter(Boolean).join(' '),
+      QFClientPostalCity:[model?.clientPostalCode, model?.clientCity].map(value => String(value || '').trim()).filter(Boolean).join(' - '),
+      QFQuotationVersion:model?.quotationVersion || '',
+      QFQuotationDate:dateMatch ? `${dateMatch[3]}/${dateMatch[2]}/${dateMatch[1]}` : date,
+      QFQuotationDateYear:dateMatch?.[1] || '',
+      QFCurrencyCode:currencyCode,
+      QFCurrencySymbol:currencySymbol,
+      QFTrackerPricePerKw:money(trackerPrice),
+      QFTrackerOfferTotal:money(trackerQuantity !== null && trackerPrice !== null ? trackerQuantity * trackerPrice : model?.trackerOfferTotal),
+      QFSafeguardUnitPrice:money(model?.safeguardUnitPrice),
+      QFSafeguardTotal:money(safeguardQuantity !== null && numberOrNull(model?.safeguardUnitPrice) !== null ? safeguardQuantity * Number(model.safeguardUnitPrice) : model?.safeguardTotal),
+      QFMonitoringUnitPrice:money(model?.monitoringUnitPrice),
+      QFMonitoringTotal:money(monitoringQuantity !== null && numberOrNull(model?.monitoringUnitPrice) !== null ? monitoringQuantity * Number(model.monitoringUnitPrice) : model?.monitoringTotal),
+      QFEngineeringUnitPrice:money(model?.engineeringUnitPrice),
+      QFEngineeringTotal:money(model?.engineeringTotal),
+      QFCommissioningPrice:money(commissioningPrice),
+      QFCommissioningTotal:money(commissioningPrice),
+      QFQuotationTotal:money(model?.quotationTotal),
+      QFPilePricePerMWp:money(numberOrNull(values.pilePricePerMWpWhole) ?? model?.pileSupplementPricePerMWp),
+      QFInstallationManworkRate:money(numberOrNull(values.installationManworkRateWhole) ?? model?.manworkRate1),
+      QFExtendedManworkRate:money(numberOrNull(values.extendedManworkRateWhole) ?? model?.manworkRate2),
+    };
+    const runtimeCommands = Object.entries(runtimeValues).map(([name, value]) => `\\newcommand{\\${name}}{${escapeLatex(value)}}`);
+    return [...fieldCommands, ...runtimeCommands].join('\n') + '\n';
   }
 
   const decimal = value => Number(value).toFixed(2).replace(/\.00$/, '');

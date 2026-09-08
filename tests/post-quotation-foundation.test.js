@@ -141,7 +141,7 @@ test('quotation reads the complete parameterized LaTeX template and safely conne
   assert.match(renderer,/role="progressbar"/);
   assert.match(renderer,/data-quotation-progress-elapsed/);
   assert.match(renderer,/maxlength="\$\{maxLength\}"/);
-  assert.match(renderer,/data-quotation-character-limit/);
+  assert.doesNotMatch(renderer,/data-quotation-character-limit|quotation-character-limit/);
   assert.match(renderer,/PDF page \$\{definition\.pdfPage\}/);
   assert.doesNotMatch(renderer,/SwiftLaTeX|XeTeX|Dvipdfmx/);
   assert.doesNotMatch(renderer,/live browser compilation is intentionally disabled/i);

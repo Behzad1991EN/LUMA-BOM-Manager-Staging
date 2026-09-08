@@ -72,8 +72,7 @@
       const rawValue = String(quotation[key] ?? '');
       const value = maxLength ? Array.from(rawValue).slice(0, maxLength).join('') : rawValue;
       const limitAttribute = maxLength ? ` maxlength="${maxLength}"` : '';
-      const limitStatus = maxLength ? `<small class="quotation-character-limit" data-quotation-character-limit>${Array.from(value).length} / ${maxLength} characters</small>` : '';
-      return `<label class="quotation-field"><span>${escapeHtml(label)}</span><input data-quotation-field="${key}" type="${inputType}" value="${escapeHtml(value)}"${limitAttribute}>${limitStatus}</label>`;
+      return `<label class="quotation-field"><span>${escapeHtml(label)}</span><input data-quotation-field="${key}" type="${inputType}" value="${escapeHtml(value)}"${limitAttribute}></label>`;
     }).join('');
   }
 
@@ -348,12 +347,6 @@
         <iframe class="quotation-pdf-frame" data-quotation-pdf title="Generated LUMA quotation PDF preview"></iframe>
       </section>
     </div>`;
-    root.querySelectorAll('[data-quotation-field][maxlength]').forEach(input => {
-      const counter = input.closest('.quotation-field')?.querySelector('[data-quotation-character-limit]');
-      const updateCounter = () => { if (counter) counter.textContent = `${Array.from(input.value).length} / ${input.maxLength} characters`; };
-      input.addEventListener('input', updateCounter);
-      updateCounter();
-    });
     root.querySelectorAll('[data-quotation-field]').forEach(input => input.addEventListener('change', () => markPreviewStale(root)));
     root.querySelectorAll('[data-quotation-template-field]').forEach(input => input.addEventListener('change', () => markPreviewStale(root)));
     root.querySelector('[data-quotation-action="refresh"]').addEventListener('click', () => void refresh(root));

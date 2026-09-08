@@ -22,6 +22,7 @@
   });
 
   const FIELD_SOURCES = Object.freeze(Object.fromEntries(fieldRegistry.FIELDS.map(definition => [definition.id, definition.source])));
+  const PROJECT_LOCATION_MAX_LENGTH = fieldRegistry.get('projectLocation')?.maxLength || 30;
 
   let settings = {
     currency: 'EUR', revision: '00', validity_days: 7, delivery_time_weeks: 20,
@@ -63,6 +64,7 @@
       revision: settings.revision || DEFAULTS.revision,
       ...source,
       currency: global.LumaCurrencyData.normalizeCode(source.currency, global.LumaCurrencyData.normalizeCode(settings.currency, DEFAULTS.currency)),
+      project_location:Array.from(String(source.project_location ?? DEFAULTS.project_location)).slice(0, PROJECT_LOCATION_MAX_LENGTH).join(''),
       client_first_name: source.client_first_name || legacyName.shift() || '',
       client_last_name: source.client_last_name || legacyName.join(' '),
       template_fields: {...fieldRegistry.templateDefaults(), ...(source.template_fields && typeof source.template_fields === 'object' ? source.template_fields : {})},

@@ -3,6 +3,7 @@
 (function initializeQuotationFieldDefinitions(global) {
   const SOURCE_TBD = 'TBD';
   const LAYOUT_DEBUG = false;
+  const PDF_PAGE_BY_LAYOUT_PAGE = Object.freeze({1:1, 4:3, 5:4, 6:5, 11:10});
 
   const text = (xMm, baselineYMm, widthMm, fontSizePt, options = {}) => ({
     xMm, baselineYMm, widthMm, fontFamily:'Carlito', fontSizePt,
@@ -14,9 +15,10 @@
   });
   const erase = (xMm, yMm, widthMm, heightMm, background = 'white') => ({xMm, yMm, widthMm, heightMm, background});
   const field = (id, page, label, group, exampleValue, eraseBox, textBox, options = {}) => Object.freeze({
-    id, page, label, group, source:SOURCE_TBD, valueType:options.valueType || 'text',
+    id, page, pdfPage:PDF_PAGE_BY_LAYOUT_PAGE[page] || page, label, group, source:SOURCE_TBD, valueType:options.valueType || 'text',
     exampleValue, editable:true, storageKey:options.storageKey || `template_fields.${id}`,
     valuePart:options.valuePart || '', inputType:options.inputType || 'text',
+    maxLength:Number.isInteger(options.maxLength) && options.maxLength > 0 ? options.maxLength : null,
     erase:eraseBox, text:textBox, ambiguous:options.ambiguous || '',
     overflowCheck:options.overflowCheck !== false,
   });
@@ -28,7 +30,7 @@
       {storageKey:'customer_company'}),
     field('projectLocation', 1, 'Project Location', 'Client', 'Location',
       erase(79.73,164.92,25.05,8.64), text(79.77,172.16,25.00,20,{fontWeight:'bold',color:'A6A6A6',minFontSizePt:17}),
-      {storageKey:'project_location'}),
+      {storageKey:'project_location',maxLength:30,overflowCheck:false}),
     field('clientTitle', 1, 'Contact Title', 'Client', 'MR/MRs',
       erase(43.39,183.09,27.87,9.52), text(43.40,191.03,27.80,22,{color:'A6A6A6',minFontSizePt:18}),
       {storageKey:'title',inputType:'title'}),
@@ -144,7 +146,11 @@
     }
     return raw === '' || raw === null || raw === undefined ? definition.exampleValue : raw;
   };
-  const fieldValues = (quotation, automaticValues = {}) => Object.freeze(Object.fromEntries(FIELDS.map(definition => [definition.id, String(storageValue(quotation || {}, definition, automaticValues))])));
+  const limitValue = (definition, value) => {
+    const characters = Array.from(String(value));
+    return definition.maxLength ? characters.slice(0, definition.maxLength).join('') : characters.join('');
+  };
+  const fieldValues = (quotation, automaticValues = {}) => Object.freeze(Object.fromEntries(FIELDS.map(definition => [definition.id, limitValue(definition, storageValue(quotation || {}, definition, automaticValues))])));
   const templateDefaults = () => Object.fromEntries(FIELDS.filter(definition => definition.storageKey.startsWith('template_fields.')).map(definition => [definition.id, '']));
   const primaryControls = () => {
     const seen = new Set();
@@ -152,7 +158,7 @@
       if (seen.has(definition.storageKey)) return false;
       seen.add(definition.storageKey);
       return true;
-    }).map(definition => ({label:definition.valuePart ? 'Quotation Date' : definition.label, key:definition.storageKey, inputType:definition.inputType, group:definition.group}));
+    }).map(definition => ({label:definition.valuePart ? 'Quotation Date' : definition.label, key:definition.storageKey, inputType:definition.inputType, group:definition.group, maxLength:definition.maxLength}));
   };
   const draftGroups = () => {
     const groups = new Map();

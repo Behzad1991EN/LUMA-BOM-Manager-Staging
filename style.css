@@ -4917,6 +4917,14 @@ th.wrap {
     padding: 6px 8px;
 }
 
+.quotation-character-limit {
+    justify-self: end;
+    margin-top: -4px;
+    color: #76695E;
+    font-size: 0.82em;
+    font-weight: 400;
+}
+
 .quotation-draft-fields {
     margin-top: 22px;
     padding-top: 18px;

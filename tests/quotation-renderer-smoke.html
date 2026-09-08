@@ -24,7 +24,7 @@
     };
     window.LumaQuotationLatex = {buildVariables:()=>'',buildLayout:value=>value,overflowWarnings:()=>[]};
     window.LumaQuotationFields = {
-      primaryControls:()=>[{label:'Client Company',key:'customer_company',inputType:'text'},{label:'Project Location',key:'project_location',inputType:'text'},{label:'Quotation Number',key:'quotation_number',inputType:'text'}],
+      primaryControls:()=>[{label:'Client Company',key:'customer_company',inputType:'text'},{label:'Project Location',key:'project_location',inputType:'text',maxLength:30},{label:'Quotation Number',key:'quotation_number',inputType:'text'}],
       draftGroups:()=>new Map(),
     };
     window.LumaQuotationCompiler = {
@@ -46,6 +46,8 @@
     (async()=>{
       const root=document.getElementById('quotationRoot');
       await window.LumaQuotation.render(root);
+      const locationInput=root.querySelector('[data-quotation-field="project_location"]');
+      if(locationInput.maxLength!==30||!locationInput.closest('label').querySelector('[data-quotation-character-limit]'))throw new Error('Project Location limit is missing.');
       root.querySelector('[data-quotation-action="refresh"]').click();
       const waitFor=predicate=>new Promise((resolve,reject)=>{const started=Date.now(),timer=setInterval(()=>{if(predicate()){clearInterval(timer);resolve();}else if(Date.now()-started>10000){clearInterval(timer);reject(new Error('UI smoke test timed out.'));}},50);});
       await waitFor(()=>root.querySelector('[data-quotation-status]').textContent==='Quotation generated successfully.');

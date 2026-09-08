@@ -66,10 +66,14 @@
 
   function formHtml(quotation) {
     const controls=[...global.LumaQuotationFields.primaryControls(),{label:'Revision',key:'revision',inputType:'text'},{label:'Currency',key:'currency',inputType:'currency'}];
-    return controls.map(({label, key, inputType = 'text'}) => {
+    return controls.map(({label, key, inputType = 'text', maxLength = null}) => {
       if (inputType === 'title') return `<label class="quotation-field"><span>${escapeHtml(label)}</span><select data-quotation-field="${key}">${['Mr','Mrs','Ms','Dr','MR/MRs'].map(value => `<option value="${value}" ${quotation[key] === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label>`;
       if (inputType === 'currency') return `<label class="quotation-field"><span>${escapeHtml(label)}</span><select data-quotation-field="${key}">${global.LumaCurrencyData.OPTIONS.map(currency => `<option value="${currency.code}" ${quotation[key] === currency.code ? 'selected' : ''}>${escapeHtml(global.LumaCurrencyData.optionLabel(currency.code))}</option>`).join('')}</select></label>`;
-      return `<label class="quotation-field"><span>${escapeHtml(label)}</span><input data-quotation-field="${key}" type="${inputType}" value="${escapeHtml(quotation[key])}"></label>`;
+      const rawValue = String(quotation[key] ?? '');
+      const value = maxLength ? Array.from(rawValue).slice(0, maxLength).join('') : rawValue;
+      const limitAttribute = maxLength ? ` maxlength="${maxLength}"` : '';
+      const limitStatus = maxLength ? `<small class="quotation-character-limit" data-quotation-character-limit>${Array.from(value).length} / ${maxLength} characters</small>` : '';
+      return `<label class="quotation-field"><span>${escapeHtml(label)}</span><input data-quotation-field="${key}" type="${inputType}" value="${escapeHtml(value)}"${limitAttribute}>${limitStatus}</label>`;
     }).join('');
   }
 
@@ -83,7 +87,7 @@
             const automatic = model?.automaticFields?.[definition.id];
             const source = automatic !== '' && automatic !== null && automatic !== undefined ? 'automatic from project' : 'manual quotation value';
             const placeholder = automatic !== '' && automatic !== null && automatic !== undefined ? `Auto: ${automatic}` : definition.exampleValue;
-            return `<label class="quotation-field quotation-draft-field"><span>${escapeHtml(definition.label)} <small>Page ${definition.page} · ${escapeHtml(source)}</small></span><input data-quotation-template-field="${definition.id}" type="text" value="${escapeHtml(override)}" placeholder="${escapeHtml(placeholder)}"></label>`;
+            return `<label class="quotation-field quotation-draft-field"><span>${escapeHtml(definition.label)} <small>PDF page ${definition.pdfPage} · ${escapeHtml(source)}</small></span><input data-quotation-template-field="${definition.id}" type="text" value="${escapeHtml(override)}" placeholder="${escapeHtml(placeholder)}"></label>`;
           }).join('')}
         </div>
       </details>`).join('');
@@ -344,6 +348,12 @@
         <iframe class="quotation-pdf-frame" data-quotation-pdf title="Generated LUMA quotation PDF preview"></iframe>
       </section>
     </div>`;
+    root.querySelectorAll('[data-quotation-field][maxlength]').forEach(input => {
+      const counter = input.closest('.quotation-field')?.querySelector('[data-quotation-character-limit]');
+      const updateCounter = () => { if (counter) counter.textContent = `${Array.from(input.value).length} / ${input.maxLength} characters`; };
+      input.addEventListener('input', updateCounter);
+      updateCounter();
+    });
     root.querySelectorAll('[data-quotation-field]').forEach(input => input.addEventListener('change', () => markPreviewStale(root)));
     root.querySelectorAll('[data-quotation-template-field]').forEach(input => input.addEventListener('change', () => markPreviewStale(root)));
     root.querySelector('[data-quotation-action="refresh"]').addEventListener('click', () => void refresh(root));

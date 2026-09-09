@@ -61,9 +61,9 @@ test('Project BOM selected rows match the VEON highlighted and keyboard-accessib
   assert.match(styles, /color: #FFF/);
 });
 
-test('browser assets use the Project BOM controls cache token', () => {
+test('browser assets share the current release cache token', () => {
   const html = read('index.html');
   for (const asset of ['style.css', 'engine.js', 'app.js']) {
-    assert.match(html, new RegExp(`${asset.replace('.', '\\.')}\\?v=20260903-project-bom-controls`));
+    assert.match(html, new RegExp(`${asset.replace('.', '\\.')}\\?v=20260908-electrical-category-split`));
   }
 });

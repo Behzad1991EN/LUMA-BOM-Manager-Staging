@@ -10,7 +10,11 @@
     limit_switch: 'Limit Switch',
     soltrk: 'SOLTRK',
     junction_box: 'Junction Box',
-    electrical: 'Electrical',
+    cable_gland: 'Cable Gland',
+    safeguard: 'Safeguard',
+    anemometer: 'Anemometer',
+    power_supply: 'Power Supply',
+    electrical_enclosure: 'Electrical Enclosure',
     fasteners: 'Fasteners',
   });
 
@@ -30,9 +34,13 @@
     limitswitch: 'limit_switch',
     soltrk: 'soltrk',
     junctionbox: 'junction_box',
+    cablegland: 'cable_gland',
+    safeguard: 'safeguard',
+    anemometer: 'anemometer',
+    powersupply: 'power_supply',
+    electricalenclosure: 'electrical_enclosure',
     fastener: 'fasteners',
     fasteners: 'fasteners',
-    electrical: 'electrical',
   });
   // Compatibility while the category-correction migration is pending in an
   // environment. The same values are stored authoritatively by the migration.
@@ -75,6 +83,14 @@
     if (identity.includes('limitswitch')) return 'limit_switch';
     if (identity.includes('soltrk')) return 'soltrk';
     if (identity.includes('junctionbox') || identity.includes('jbox')) return 'junction_box';
+    // Legacy Part Master records stored all of these under Electrical. Resolve
+    // them by their stable component identity until every database has applied
+    // the category-split migration.
+    if (identity.includes('cablegland')) return 'cable_gland';
+    if (identity.includes('safeguard')) return 'safeguard';
+    if (identity.includes('anemometer')) return 'anemometer';
+    if (identity.includes('powersupply') || identity.includes('higecogwc')) return 'power_supply';
+    if (identity.includes('electricalenclosure') || identity.includes('scadaenclosure')) return 'electrical_enclosure';
     if (category.includes('bearing') || identity.startsWith('bearing')) return 'bearing';
     if (category.includes('slewdrive') || identity.includes('slewdrive')) return 'slew_drive';
     return normalizeCategoryKey(category);
@@ -83,14 +99,12 @@
   function partMatchesCategory(record, category) {
     const requested = normalizeCategoryKey(category);
     if (!requested) return false;
-    const stored = normalizeCategoryKey(recordValue(record, 'Category', 'category'));
-    if (requested === 'electrical') return stored === 'electrical';
     return leafKeyForPart(record) === requested;
   }
 
   function categoryLabel(value) {
     const key = normalizeCategoryKey(value);
-    return SECTION_CATEGORIES[key] || (key === 'electrical' ? 'Electrical' : String(value ?? '').trim());
+    return SECTION_CATEGORIES[key] || String(value ?? '').trim();
   }
 
   global.LumaCommercialCategories = Object.freeze({

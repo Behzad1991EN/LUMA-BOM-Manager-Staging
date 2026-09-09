@@ -270,7 +270,8 @@ function isPvModuleIncluded(project=getActiveProject()){return project?.analysis
 function isAnalysisSectionIncluded(page,project=getActiveProject()){return page!=='pv_module'||isPvModuleIncluded(project);}
 function normalizeAnalysisSupplierSelections(value){
   const source=value&&typeof value==='object'?value:{};
-  return {posts:String(source.posts||''),substructure:String(source.substructure||source.steel||''),bearing:String(source.bearing||''),slew_drive:String(source.slew_drive||''),pv_module:String(source.pv_module||''),limit_switch:String(source.limit_switch||''),soltrk:String(source.soltrk||''),junction_box:String(source.junction_box||''),electrical:String(source.electrical||''),fasteners:String(source.fasteners||'')};
+  const legacyElectrical=String(source.electrical||'');
+  return {posts:String(source.posts||''),substructure:String(source.substructure||source.steel||''),bearing:String(source.bearing||''),slew_drive:String(source.slew_drive||''),pv_module:String(source.pv_module||''),limit_switch:String(source.limit_switch||legacyElectrical),soltrk:String(source.soltrk||legacyElectrical),junction_box:String(source.junction_box||legacyElectrical),cable_gland:String(source.cable_gland||legacyElectrical),safeguard:String(source.safeguard||legacyElectrical),anemometer:String(source.anemometer||legacyElectrical),power_supply:String(source.power_supply||legacyElectrical),electrical_enclosure:String(source.electrical_enclosure||legacyElectrical),fasteners:String(source.fasteners||'')};
 }
 function makeProject(name='Sample Project',code='SAMPLE'){
   return {
@@ -1008,7 +1009,11 @@ const ANALYSIS_ITEM_PAGE_CONFIG=Object.freeze({
   limit_switch:{title:'Limit Switch',subtitle:'Read-only supplier pricing for limit-switch components.'},
   soltrk:{title:'SOLTRK',subtitle:'Read-only supplier pricing for SOLTRK components.'},
   junction_box:{title:'Junction Box',subtitle:'Read-only supplier pricing for junction-box components.'},
-  electrical:{title:'Electrical',subtitle:'Read-only supplier pricing for general electrical, SCADA, Safeguard, Cable Gland, Power Supply, and Anemometer components.'},
+  cable_gland:{title:'Cable Gland',subtitle:'Read-only supplier pricing for cable-gland components.'},
+  safeguard:{title:'Safeguard',subtitle:'Read-only supplier pricing for Safeguard components.'},
+  anemometer:{title:'Anemometer',subtitle:'Read-only supplier pricing for the selected anemometer components.'},
+  power_supply:{title:'Power Supply',subtitle:'Read-only supplier pricing for SCADA and control power-supply components.'},
+  electrical_enclosure:{title:'Electrical Enclosure',subtitle:'Read-only supplier pricing for electrical-enclosure components.'},
   fasteners:{title:'Fasteners',subtitle:'Read-only supplier pricing by BOM TAG for fasteners, including the selected contingency.'},
 });
 function analysisCommercialPages(){return Object.keys(window.LumaCommercialAnalysis.SECTION_CATEGORIES).filter(page=>page!=='cat');}
@@ -1259,7 +1264,7 @@ const RESULT_MATERIAL_GROUPS=Object.freeze([
   Object.freeze({key:'bearing',label:'Bearing',pages:Object.freeze(['bearing'])}),
   Object.freeze({key:'slew_drive',label:'Slew Drive',pages:Object.freeze(['slew_drive'])}),
   Object.freeze({key:'fasteners',label:'Fasteners',pages:Object.freeze(['fasteners'])}),
-  Object.freeze({key:'electrical',label:'Electrical',pages:Object.freeze(['electrical','pv_module','limit_switch','soltrk','junction_box'])}),
+  Object.freeze({key:'electrical',label:'Electrical',pages:Object.freeze(['pv_module','limit_switch','soltrk','junction_box','cable_gland','safeguard','anemometer','power_supply','electrical_enclosure'])}),
 ]);
 function resultTransportField(shipment){
   const method=String(shipment?.rate?.route_method||'').toLowerCase(),origin=E.normalizeText(`${shipment?.origin||''} ${shipment?.supplier?.country||''} ${shipment?.rate?.origin_country||''}`);
@@ -1418,6 +1423,9 @@ function renderFastenerPackaging(){
 }
 function analysisHomeIcon(page){
   const paths={steel:'<path d="M4 6h16M6 6v12m12-12v12M4 18h16M8 10h8m-8 4h8"/>',electrical:'<path d="m13 2-7 12h6l-1 8 7-12h-6l1-8Z"/>',major:'<circle cx="12" cy="12" r="4"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M19 5l-2 2M7 17l-2 2"/>',fasteners:'<path d="m8 3 3 3-5 5-3-3 5-5Zm8 10 5 5-3 3-5-5m-5-5 5 5m-2-8 5 5"/>',personnel:'<circle cx="9" cy="8" r="3"/><circle cx="17" cy="10" r="2"/><path d="M3 20v-2a6 6 0 0 1 12 0v2m0-6a5 5 0 0 1 6 4v2"/>',total:'<path d="M6 5h12M8 9l-3 3 3 3m8-6 3 3-3 3M6 19h12"/>',result:'<path d="M4 19h16M6 16l4-5 3 2 5-7M16 6h2v2"/>',packaging:'<path d="m3 7 9-4 9 4-9 4-9-4Zm0 0v10l9 4 9-4V7m-9 4v10"/>',logistics:'<path d="M3 7h11v10H3zM14 10h4l3 3v4h-7M7 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm10 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/>'};
+  if(['limit_switch','soltrk','junction_box','cable_gland','safeguard','anemometer','power_supply','electrical_enclosure'].includes(page))page='electrical';
+  else if(['posts','substructure'].includes(page))page='steel';
+  else if(['bearing','slew_drive','pv_module'].includes(page))page='major';
   return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[page]||paths.total}</svg>`;
 }
 function analysisHomeSummary(totals,hasGaps=false){
@@ -1435,7 +1443,7 @@ function renderAnalysisHome(){
   ];
   root.innerHTML=`<div class="analysis-home-header"><h2 class="table-title">Project Cost Analysis</h2><p class="table-subtitle">Choose an analysis area for the active project.</p></div><div class="analysis-home-grid">${cards.map(card=>`<button class="analysis-home-card" type="button" data-analysis-page="${card.page}"><span class="analysis-home-icon">${analysisHomeIcon(card.page)}</span><span class="analysis-home-copy"><strong>${escapeHtml(card.title)}</strong><span>${escapeHtml(card.description)}</span><em>${escapeHtml(card.summary)}</em></span><span class="analysis-home-arrow" aria-hidden="true">›</span></button>`).join('')}</div>`;
   const grid=root.querySelector('.analysis-home-grid'),buttons=new Map([...grid.children].map(button=>[button.dataset.analysisPage,button]));grid.classList.add('analysis-home-sections');grid.replaceChildren();
-  for(const [title,pages] of [['Steel Structure',['posts','substructure']],['Major Components',['slew_drive','bearing']],['Electrical',['electrical','pv_module','limit_switch','soltrk','junction_box']],['Fasteners',['fasteners']],['Logistics',['logistics']],['Personnel',['personnel']],['Summary',['total','packaging']],['Result',['result']]]){
+  for(const [title,pages] of [['Steel Structure',['posts','substructure']],['Major Components',['slew_drive','bearing','pv_module']],['Electrical',['soltrk','junction_box','cable_gland','safeguard','anemometer','power_supply','electrical_enclosure','limit_switch']],['Fasteners',['fasteners']],['Logistics',['logistics']],['Personnel',['personnel']],['Summary',['total','packaging']],['Result',['result']]]){
     const section=document.createElement('section');section.className=`analysis-home-section ${pages.length>3?'analysis-home-section-wide':''}`;section.innerHTML=`<h3>${escapeHtml(title)}</h3><div class="analysis-home-grid"></div>`;const sectionGrid=section.querySelector('.analysis-home-grid');pages.forEach(page=>{if(buttons.has(page))sectionGrid.appendChild(buttons.get(page));});grid.appendChild(section);
   }
   root.querySelectorAll('[data-analysis-page]').forEach(button=>button.addEventListener('click',()=>{uiState.analysisPage=button.dataset.analysisPage;renderAnalysis();requestAnimationFrame(updateFixedHorizontalScroll);}));

@@ -38,7 +38,11 @@ test('Part Master fields resolve the intended commercial leaf categories', () =>
     [{Category:'Steel Structure / Substructure', Part:'Bearing Adapter', Description:'Connection to Bearing Post'}, 'substructure'],
     [{Category:'Steel Structure', Part:'Slew Drive Seat', Description:'2 x Main Post', 'Post Kind':0}, 'substructure'],
     [{Category:'Electrical', Part:'SOLTRK 3.0'}, 'soltrk'],
-    [{Category:'Electrical', Part:'Cable Gland'}, 'electrical'],
+    [{Category:'Electrical', Part:'Cable Gland'}, 'cable_gland'],
+    [{Category:'Electrical', Part:'Safeguard M'}, 'safeguard'],
+    [{Category:'Electrical', Part:'Anemometer for Normal Weather'}, 'anemometer'],
+    [{Category:'Electrical', Part:'Power Supply', Description:'Higeco GWC V4 4DIN'}, 'power_supply'],
+    [{Category:'Electrical', Part:'Electrical Enclosure'}, 'electrical_enclosure'],
     [{Category:'Bearings', Part:'Bearing'}, 'bearing'],
     [{Category:'Fasteners / Junction Box', Part:'Bolt'}, 'fasteners'],
   ];
@@ -59,5 +63,8 @@ test('Part Master fields resolve the intended commercial leaf categories', () =>
     const category = ['k001479', 'k001576'].includes(tag) ? 'Fasteners / Legacy' : 'Steel Structure';
     assert.equal(categories.partMatchesCategory({TAG:tag, Category:category, Part:part, Description:description}, 'Substructure'), true, tag);
   }
-  assert.equal(categories.partMatchesCategory({category:'Electrical', part:'Cable Gland'}, 'Electrical'), true);
+  assert.equal(categories.partMatchesCategory({category:'Electrical', part:'Cable Gland'}, 'Cable Gland'), true);
+  assert.equal(categories.partMatchesCategory({category:'Electrical', part:'Cable Gland'}, 'Safeguard'), false);
+  assert.equal(categories.partMatchesCategory({category:'Cable Gland', part:'Cable Gland'}, 'Cable Gland'), true);
+  assert.equal(categories.SECTION_CATEGORIES.electrical, undefined);
 });

@@ -2,6 +2,10 @@
 
 (function initializeCommercialAnalysis(global) {
   const SECTION_CATEGORIES = global.LumaCommercialCategories.SECTION_CATEGORIES;
+  const SPLIT_ELECTRICAL_CATEGORIES = new Set([
+    'Limit Switch', 'SOLTRK', 'Junction Box', 'Cable Gland',
+    'Safeguard', 'Anemometer', 'Power Supply', 'Electrical Enclosure',
+  ]);
 
   let state = {
     status: 'idle',
@@ -74,16 +78,22 @@
 
   function eligibleSuppliersFor(category) {
     if (!category || state.status !== 'ready') return [];
-    const activeLists = state.data.priceLists.filter(list =>
-      list?.active === true && list.category === category
-    );
+    const allowsLegacyElectrical = SPLIT_ELECTRICAL_CATEGORIES.has(category);
+    const activeLists = state.data.priceLists.filter(list => list?.active === true);
     return state.data.suppliers
       .filter(supplier => supplier?.active === true)
       .map(supplier => {
-        const categoryAssignment = (supplier.supplier_categories || []).find(assignment =>
+        const assignments = supplier.supplier_categories || [];
+        const categoryAssignment = assignments.find(assignment =>
           assignment?.active === true && assignment.category === category
-        );
-        const priceList = activeLists.find(list => list.supplier_id === supplier.id);
+        ) || (allowsLegacyElectrical ? assignments.find(assignment =>
+          assignment?.active === true && assignment.category === 'Electrical'
+        ) : null);
+        const priceList = activeLists.find(list =>
+          list.supplier_id === supplier.id && list.category === category
+        ) || (allowsLegacyElectrical ? activeLists.find(list =>
+          list.supplier_id === supplier.id && list.category === 'Electrical'
+        ) : null);
         return categoryAssignment && priceList ? {supplier, categoryAssignment, priceList} : null;
       })
       .filter(Boolean)

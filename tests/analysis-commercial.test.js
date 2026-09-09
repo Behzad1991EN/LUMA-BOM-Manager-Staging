@@ -9,12 +9,13 @@ const vm = require('node:vm');
 const SOURCE = fs.readFileSync(path.join(__dirname, '..', 'analysis-commercial.js'), 'utf8');
 const CATEGORY_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'commercial-categories.js'), 'utf8');
 const APP_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+const ELECTRICAL_SPLIT_MIGRATION = fs.readFileSync(path.join(__dirname, '..', 'supabase', 'migrations', '20260908002000_split_electrical_commercial_categories.sql'), 'utf8');
 
 function fixture() {
   return {
     suppliers: [
       {id: 'steel-ok', supplier_code: 'SUP-001', supplier_name: 'ABC Steel', active: true, supplier_categories: [{category: 'Substructure', active: true, delivery_time_days: 42}]},
-      {id: 'wrong-category', supplier_code: 'SUP-002', supplier_name: 'Electrical Only', active: true, supplier_categories: [{category: 'Electrical', active: true, delivery_time_days: 14}]},
+      {id: 'wrong-category', supplier_code: 'SUP-002', supplier_name: 'Cable Gland Only', active: true, supplier_categories: [{category: 'Cable Gland', active: true, delivery_time_days: 14}]},
       {id: 'inactive-assignment', supplier_code: 'SUP-003', supplier_name: 'Inactive Category', active: true, supplier_categories: [{category: 'Substructure', active: false, delivery_time_days: 30}]},
       {id: 'inactive-supplier', supplier_code: 'SUP-004', supplier_name: 'Inactive Supplier', active: false, supplier_categories: [{category: 'Substructure', active: true, delivery_time_days: 10}]},
       {id: 'no-list', supplier_code: 'SUP-005', supplier_name: 'No Active List', active: true, supplier_categories: [{category: 'Substructure', active: true, delivery_time_days: 20}]},
@@ -39,7 +40,7 @@ function loadModule(data = fixture()) {
   return {commercial: window.LumaCommercialAnalysis, loads: () => loads};
 }
 
-test('central category mapping exposes all ten commercial leaf sections including general Electrical', () => {
+test('central category mapping exposes independent electrical component sections without a generic Electrical section', () => {
   const {commercial} = loadModule();
   assert.deepEqual({...commercial.SECTION_CATEGORIES}, {
     posts: 'Posts',
@@ -50,10 +51,30 @@ test('central category mapping exposes all ten commercial leaf sections includin
     limit_switch: 'Limit Switch',
     soltrk: 'SOLTRK',
     junction_box: 'Junction Box',
-    electrical: 'Electrical',
+    cable_gland: 'Cable Gland',
+    safeguard: 'Safeguard',
+    anemometer: 'Anemometer',
+    power_supply: 'Power Supply',
+    electrical_enclosure: 'Electrical Enclosure',
     fasteners: 'Fasteners',
   });
   assert.equal(commercial.SECTION_CATEGORIES.major, undefined);
+  assert.equal(commercial.SECTION_CATEGORIES.electrical, undefined);
+});
+
+test('electrical category migration preserves history while splitting supplier capabilities, Part Master TAGs, and Price Lists', () => {
+  for (const category of ['Cable Gland', 'Safeguard', 'Anemometer', 'Power Supply', 'Electrical Enclosure']) {
+    assert.match(ELECTRICAL_SPLIT_MIGRATION, new RegExp(`'${category}'`));
+  }
+  for (const tag of ['k001393', 'k001534', 'k001549', 'k001404', 'k001390', 'k001405', 'k001406', 'k001536', 'k001596', 'k001525', 'k001552', 'k001542']) {
+    assert.match(ELECTRICAL_SPLIT_MIGRATION, new RegExp(`'${tag}'`));
+  }
+  assert.match(ELECTRICAL_SPLIT_MIGRATION, /insert into public\.supplier_categories/);
+  assert.match(ELECTRICAL_SPLIT_MIGRATION, /insert into public\.price_lists/);
+  assert.match(ELECTRICAL_SPLIT_MIGRATION, /insert into public\.price_list_items/);
+  assert.match(ELECTRICAL_SPLIT_MIGRATION, /update public\.price_lists\s+set active = false\s+where category = 'Electrical'/);
+  assert.doesNotMatch(ELECTRICAL_SPLIT_MIGRATION, /delete from public\.price_lists/);
+  assert.match(ELECTRICAL_SPLIT_MIGRATION, /update public\.supplier_category_catalog\s+set active = false\s+where category = 'Electrical'/);
 });
 
 test('eligible supplier requires active supplier, category assignment, and active category Price List', async () => {
@@ -63,6 +84,54 @@ test('eligible supplier requires active supplier, category assignment, and activ
   const data = commercial.buildSection('substructure', '', []);
   assert.deepEqual(data.eligibleSuppliers.map(entry => entry.supplier.id), ['steel-ok']);
   assert.equal(loads(), 1, 'ready commercial data should be reused without another query');
+});
+
+test('each electrical component accepts only its own supplier and Price List', async () => {
+  const definitions = [
+    ['soltrk', 'SOLTRK', 'k001534', 'SOLTRK 2.0'],
+    ['junction_box', 'Junction Box', 'k001404', 'Junction Box'],
+    ['cable_gland', 'Cable Gland', 'k001390', 'Cable Gland'],
+    ['safeguard', 'Safeguard', 'k001405', 'Safeguard M'],
+    ['anemometer', 'Anemometer', 'k001596', 'Anemometer for Normal Weather'],
+    ['power_supply', 'Power Supply', 'k001552', 'Power Supply'],
+    ['electrical_enclosure', 'Electrical Enclosure', 'k001542', 'Electrical Enclosure'],
+  ];
+  const data = {
+    suppliers: definitions.map(([key, category]) => ({id:key, supplier_code:key.toUpperCase(), supplier_name:category, active:true, supplier_categories:[{category, active:true, delivery_time_days:21}]})),
+    priceLists: definitions.map(([key, category, tag]) => ({id:`list-${key}`, supplier_id:key, category, revision:'DOC-1', currency:'EUR', active:true, price_list_items:[{tag, unit:'pcs', unit_price:'2.5'}]})),
+  };
+  const {commercial} = loadModule(data);
+  await commercial.load();
+  const mixedBom = definitions.map(([, , tag, part]) => ({TAG:tag, Category:'Electrical', Part:part, 'Total Qty':2}));
+  for (const [key, category, tag] of definitions) {
+    const section = commercial.buildSection(key, key, mixedBom);
+    assert.equal(section.category, category);
+    assert.deepEqual(section.rows.map(row => row.tag), [tag]);
+    assert.deepEqual(section.eligibleSuppliers.map(entry => entry.supplier.id), [key]);
+    assert.equal(section.subtotal, 5);
+  }
+});
+
+test('split pages can read a legacy combined Electrical list during migration rollout without exposing a generic page', async () => {
+  const {commercial} = loadModule({
+    suppliers:[{id:'legacy', supplier_code:'LEGACY', supplier_name:'Legacy Electrical', active:true, supplier_categories:[{category:'Electrical', active:true, delivery_time_days:30}]}],
+    priceLists:[{id:'legacy-list', supplier_id:'legacy', category:'Electrical', revision:'OLD-DOC', currency:'EUR', active:true, price_list_items:[
+      {tag:'k001390', unit:'pcs', unit_price:'1.2'},
+      {tag:'k001405', unit:'pcs', unit_price:'3.4'},
+    ]}],
+  });
+  await commercial.load();
+  const mixedBom = [
+    {TAG:'k001390', Category:'Electrical', Part:'Cable Gland', 'Total Qty':2},
+    {TAG:'k001405', Category:'Electrical', Part:'Safeguard M', 'Total Qty':3},
+  ];
+  const cableGland = commercial.buildSection('cable_gland', 'legacy', mixedBom);
+  const safeguard = commercial.buildSection('safeguard', 'legacy', mixedBom);
+  assert.deepEqual(cableGland.rows.map(row => row.tag), ['k001390']);
+  assert.equal(cableGland.subtotal, 2.4);
+  assert.deepEqual(safeguard.rows.map(row => row.tag), ['k001405']);
+  assert.equal(safeguard.subtotal, 10.2);
+  assert.equal(commercial.SECTION_CATEGORIES.electrical, undefined);
 });
 
 test('TAG matching calculates quantity times unit price without matching descriptions', async () => {
@@ -130,6 +199,10 @@ test('workspace project payload persists stable supplier IDs for each mapped sec
   assert.match(APP_SOURCE, /analysis_supplier_selections:normalizeAnalysisSupplierSelections\(p\.analysis_supplier_selections\)/);
   assert.match(APP_SOURCE, /p\.analysis_supplier_selections=normalizeAnalysisSupplierSelections\(raw\?\.analysis_supplier_selections\)/);
   assert.match(APP_SOURCE, /p\.analysis_supplier_selections\[page\]=event\.target\.value/);
+  assert.match(APP_SOURCE, /const legacyElectrical=String\(source\.electrical\|\|''\)/);
+  for (const key of ['cable_gland', 'safeguard', 'anemometer', 'power_supply', 'electrical_enclosure']) {
+    assert.match(APP_SOURCE, new RegExp(`${key}:String\\(source\\.${key}\\|\\|legacyElectrical\\)`));
+  }
 });
 
 test('PV Module procurement defaults to excluded, persists per project, and gates all commercial totals', () => {
@@ -153,9 +226,9 @@ test('a single eligible supplier is used automatically while several still requi
 test('commercial runtime scripts use one cache-busting release token', () => {
   const indexSource = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   for (const script of ['price-list-service.js', 'commercial-categories.js', 'analysis-commercial.js', 'app.js']) {
-    assert.match(indexSource, new RegExp(`${script.replace('.', '\\.') }\\?v=20260903-project-bom-controls`));
+    assert.match(indexSource, new RegExp(`${script.replace('.', '\\.') }\\?v=20260908-electrical-category-split`));
   }
-  assert.match(indexSource, /style\.css\?v=20260903-project-bom-controls/);
+  assert.match(indexSource, /style\.css\?v=20260908-electrical-category-split/);
 });
 
 test('every Analysis table uses the shared numbered sortable and filterable table', () => {

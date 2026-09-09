@@ -108,6 +108,8 @@
     destination_country:'Italy',
     delivery_point:'Site',
     elevation_asl:'0',
+    final_layout_document_number:'',
+    pv_module_datasheet_document_number:'',
     cad_blocks_available:'Yes',
     max_span_length:'7900',
     pv_module_width:'1134',

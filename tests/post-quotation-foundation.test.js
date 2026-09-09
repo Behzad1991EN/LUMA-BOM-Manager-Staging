@@ -230,3 +230,23 @@ test('PV capacity and foundation controls are grouped in their requested input s
   assert.match(foundationSection,/selectRow\('Main Post Type','main_post_profile'/);
   assert.match(foundationSection,/selectRow\('Bearing Post Type','bearing_post_profile'/);
 });
+
+test('Project Inputs store and export free-text document references after Plant Elevation',()=>{
+  const app=read('app.js'),engine=read('engine.js');
+  assert.match(engine,/final_layout_document_number:''/);
+  assert.match(engine,/pv_module_datasheet_document_number:''/);
+  const projectStart=app.indexOf('<h2 class="section-title">Project Inputs</h2>');
+  const pvStart=app.indexOf('<h2 class="section-title">PV Module Inputs</h2>');
+  const projectSection=app.slice(projectStart,pvStart);
+  const elevation=projectSection.indexOf('${anemometerInputRow(p)}');
+  const finalLayout=projectSection.indexOf("inputRow('Final Layout','final_layout_document_number'");
+  const datasheet=projectSection.indexOf("inputRow('PV Module Datasheet','pv_module_datasheet_document_number'");
+  const cadAvailability=projectSection.indexOf('CAD Blocks Availability');
+  assert.ok(elevation>=0&&elevation<finalLayout&&finalLayout<datasheet&&datasheet<cadAvailability);
+  assert.match(projectSection,/inputRow\('Final Layout','final_layout_document_number',i\.final_layout_document_number,'type="text" placeholder="Enter Document Number"'\)/);
+  assert.match(projectSection,/inputRow\('PV Module Datasheet','pv_module_datasheet_document_number',i\.pv_module_datasheet_document_number,'type="text" placeholder="Enter Document Number"'\)/);
+  assert.match(app,/\['Final Layout',p\.inputs\.final_layout_document_number\]/);
+  assert.match(app,/\['PV Module Datasheet',p\.inputs\.pv_module_datasheet_document_number\]/);
+  assert.match(app,/\['Final Layout',i\.final_layout_document_number\]/);
+  assert.match(app,/\['PV Module Datasheet',i\.pv_module_datasheet_document_number\]/);
+});
